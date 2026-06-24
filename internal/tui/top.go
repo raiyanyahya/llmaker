@@ -35,6 +35,7 @@ type Model struct {
 
 	width, height int
 	views         []instanceView
+	services      []engine.Service
 	err           error
 	updated       time.Time
 	loading       bool
@@ -48,8 +49,9 @@ type instanceView struct {
 
 type tickMsg time.Time
 type dataMsg struct {
-	views []instanceView
-	err   error
+	views    []instanceView
+	services []engine.Service
+	err      error
 }
 
 // Init kicks off the first fetch and the refresh ticker.
@@ -72,7 +74,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		return m, tea.Batch(m.fetchCmd(), tick(m.interval))
 	case dataMsg:
-		m.views, m.err, m.updated, m.loading = msg.views, msg.err, time.Now(), false
+		m.views, m.services, m.err, m.updated, m.loading = msg.views, msg.services, msg.err, time.Now(), false
 	}
 	return m, nil
 }
@@ -114,7 +116,10 @@ func (m Model) fetchCmd() tea.Cmd {
 			}(i)
 		}
 		wg.Wait()
-		return dataMsg{views: views}
+
+		svcs, _ := rt.ListServices(ctx)
+		sort.Slice(svcs, func(i, j int) bool { return svcs[i].Name < svcs[j].Name })
+		return dataMsg{views: views, services: svcs}
 	}
 }
 
@@ -124,7 +129,11 @@ func (m Model) View() string {
 	var b strings.Builder
 
 	title := t.Logo.Render("llmaker top")
-	b.WriteString(title + "  " + t.Muted.Render(fmt.Sprintf("%d instances", len(m.views))))
+	summary := fmt.Sprintf("%d instances", len(m.views))
+	if len(m.services) > 0 {
+		summary += fmt.Sprintf(" · %d services", len(m.services))
+	}
+	b.WriteString(title + "  " + t.Muted.Render(summary))
 	b.WriteString("\n\n")
 
 	if m.err != nil {
@@ -132,8 +141,8 @@ func (m Model) View() string {
 		b.WriteString("\n\n" + m.footer())
 		return b.String()
 	}
-	if len(m.views) == 0 {
-		b.WriteString(t.Muted.Render("No instances. Start one with `llmaker up`."))
+	if len(m.views) == 0 && len(m.services) == 0 {
+		b.WriteString(t.Muted.Render("Nothing running. Start an LLM with `llmaker up` or a service with `llmaker service add qdrant`."))
 		b.WriteString("\n\n" + m.footer())
 		return b.String()
 	}
@@ -142,7 +151,36 @@ func (m Model) View() string {
 		b.WriteString(m.renderInstance(v))
 		b.WriteString("\n")
 	}
+	b.WriteString(m.renderServices())
 	b.WriteString("\n" + m.footer())
+	return b.String()
+}
+
+// renderServices lists the infrastructure services in a compact block beneath
+// the instances, so `top` shows the whole stack, not just the LLMs.
+func (m Model) renderServices() string {
+	if len(m.services) == 0 {
+		return ""
+	}
+	t := m.theme
+	var b strings.Builder
+	b.WriteString(t.Subtitle.Render("services") + "\n")
+	for _, s := range m.services {
+		level := ui.LevelMuted
+		switch {
+		case s.IsRunning():
+			level = ui.LevelOK
+		case s.State == engine.StateExited:
+			level = ui.LevelError
+		}
+		b.WriteString(fmt.Sprintf("  %s %s  %s  %s\n",
+			t.Dot(level),
+			t.Value.Render(s.Name),
+			t.Muted.Render(s.Kind),
+			t.Key.Render(s.Endpoint()),
+		))
+	}
+	b.WriteString("\n")
 	return b.String()
 }
 

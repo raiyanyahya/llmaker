@@ -59,13 +59,22 @@ type Runtime interface {
 	Start(ctx context.Context, name string) error
 	// Stop gracefully stops a running instance, killing it after timeout.
 	Stop(ctx context.Context, name string, timeout time.Duration) error
-	// Remove deletes an instance (and its volumes). force stops it first.
+	// Remove deletes an instance or service (and its volumes). force stops it
+	// first. Instances and services share one name-addressed namespace.
 	Remove(ctx context.Context, name string, force bool) error
-	// List returns every llmaker-managed instance.
+	// List returns every llmaker-managed LLM instance (services excluded — use
+	// ListServices for those).
 	List(ctx context.Context) ([]Instance, error)
 	// Get returns a single managed instance by name.
 	Get(ctx context.Context, name string) (Instance, error)
-	// Logs streams an instance's combined stdout/stderr.
+	// CreateService provisions (but does not start) an infrastructure service
+	// from the catalog (vector DB, cache, embeddings, …).
+	CreateService(ctx context.Context, spec ServiceSpec) (Service, error)
+	// ListServices returns every llmaker-managed infrastructure service.
+	ListServices(ctx context.Context) ([]Service, error)
+	// GetService returns a single managed service by name.
+	GetService(ctx context.Context, name string) (Service, error)
+	// Logs streams an instance's or service's combined stdout/stderr.
 	Logs(ctx context.Context, name string, follow bool) (io.ReadCloser, error)
 	// Ping verifies the runtime backend is reachable (e.g. Docker daemon up).
 	Ping(ctx context.Context) error

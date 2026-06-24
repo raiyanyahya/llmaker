@@ -50,6 +50,13 @@ func runApply(ctx context.Context, app *App, opts applyOptions) error {
 	if err != nil {
 		return err
 	}
+	serviceSpecs, err := cfg.ToServiceSpecs()
+	if err != nil {
+		return err
+	}
+	if len(specs) == 0 && len(serviceSpecs) == 0 {
+		return fmt.Errorf("%s declares no instances or services", opts.file)
+	}
 
 	rt, cleanup, err := app.runtime(ctx)
 	if err != nil {
@@ -61,18 +68,27 @@ func runApply(ctx context.Context, app *App, opts applyOptions) error {
 	if err != nil {
 		return err
 	}
+	existingServices, err := rt.ListServices(ctx)
+	if err != nil {
+		return err
+	}
 	byName := make(map[string]engine.Instance, len(existing))
 	for _, in := range existing {
 		byName[in.Name] = in
 	}
-	used := engine.UsedPorts(existing)
+	used := usedPorts(existing, existingServices)
 
 	io := app.IO
 	t := io.Theme
+	var errs []error
+
+	// Services come up first: an LLM app declared in the same file may connect
+	// to a vector DB or cache at boot, and they reach each other by name on the
+	// shared network.
+	desiredSvc, svcCreated, svcUnchanged := applyServices(ctx, app, rt, serviceSpecs, existingServices, used, &errs)
 
 	desired := make(map[string]bool, len(specs))
 	var created, unchanged int
-	var errs []error
 
 	for i := range specs {
 		spec := &specs[i]
@@ -122,13 +138,91 @@ func runApply(ctx context.Context, app *App, opts applyOptions) error {
 				pruned++
 			}
 		}
+		for _, svc := range existingServices {
+			if desiredSvc[svc.Name] {
+				continue
+			}
+			if err := app.step("Removing service "+svc.Name+" (pruned)", func() error {
+				return rt.Remove(ctx, svc.Name, true)
+			}); err != nil {
+				errs = append(errs, err)
+			} else {
+				pruned++
+			}
+		}
 	}
 
 	io.Println()
-	summary := fmt.Sprintf("Applied %s: %d created, %d unchanged", opts.file, created, unchanged)
+	summary := fmt.Sprintf("Applied %s: %d created, %d unchanged",
+		opts.file, created+svcCreated, unchanged+svcUnchanged)
 	if opts.prune {
 		summary += fmt.Sprintf(", %d pruned", pruned)
 	}
 	io.Println(t.SuccessLine(summary))
 	return joinErrs(errs)
+}
+
+// applyServices reconciles the declared services: existing ones are started if
+// stopped, new ones get host ports allocated and are provisioned. It returns the
+// desired-name set (for pruning) and create/unchanged counts.
+func applyServices(ctx context.Context, app *App, rt engine.Runtime, specs []engine.ServiceSpec, existing []engine.Service, used map[int]bool, errs *[]error) (map[string]bool, int, int) {
+	io := app.IO
+	t := io.Theme
+	byName := make(map[string]engine.Service, len(existing))
+	for _, s := range existing {
+		byName[s.Name] = s
+	}
+
+	desired := make(map[string]bool, len(specs))
+	var created, unchanged int
+
+	for i := range specs {
+		spec := &specs[i]
+		desired[spec.Name] = true
+
+		if cur, ok := byName[spec.Name]; ok {
+			unchanged++
+			if !cur.IsRunning() {
+				if err := app.step("Starting service "+spec.Name, func() error { return rt.Start(ctx, spec.Name) }); err != nil {
+					*errs = append(*errs, err)
+				}
+			} else {
+				io.Println(t.Muted.Render("• service " + spec.Name + " already running"))
+			}
+			continue
+		}
+
+		if err := allocateBindings(spec.Ports, used); err != nil {
+			*errs = append(*errs, fmt.Errorf("service %q: %w", spec.Name, err))
+			continue
+		}
+
+		io.Println(t.Heading("Creating service " + spec.Name))
+		if err := provisionService(ctx, app, rt, *spec, serviceHealthTimeout, true); err != nil {
+			*errs = append(*errs, err)
+			continue
+		}
+		created++
+	}
+	return desired, created, unchanged
+}
+
+// allocateBindings fills any port binding left without a host port (Host == 0),
+// reserving each in used so nothing collides.
+func allocateBindings(ports []engine.PortBinding, used map[int]bool) error {
+	for i := range ports {
+		if ports[i].Host > 0 {
+			if used[ports[i].Host] || !engine.PortAvailable(ports[i].Host) {
+				return fmt.Errorf("port %d is not available", ports[i].Host)
+			}
+		} else {
+			p, err := engine.AllocatePort(used)
+			if err != nil {
+				return err
+			}
+			ports[i].Host = p
+		}
+		used[ports[i].Host] = true
+	}
+	return nil
 }

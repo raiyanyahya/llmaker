@@ -2,13 +2,14 @@
 
 # 🦙 llmaker
 
-### Spin up isolated, self-hosted LLM servers and run the whole fleet from your terminal.
+### Self-host your whole LLM stack — models **and** the infra around them — from your terminal.
 
-**Local LLMs that feel like `docker compose up`, not a CUDA scavenger hunt.**
+**Local LLM stacks that feel like `docker compose up`, not a CUDA scavenger hunt.**
 
-Pick a backend (Ollama, llama.cpp), set resource limits, and get a stable
-OpenAI-compatible API **+** a web UI **per instance** — managed as a fleet from a
-beautiful terminal. No memorizing `docker run` flags.
+Pick a backend (Ollama, llama.cpp) and get a stable OpenAI-compatible API **+** a
+web UI **per instance** — then add the rest of the stack (vector DBs, cache,
+embeddings, observability) so they all find each other by name. Managed as one
+fleet from a beautiful terminal. No memorizing `docker run` flags.
 
 <br/>
 
@@ -101,8 +102,10 @@ The space is crowded, so let's be honest about the wedge — it's the *combinati
 | 🎨 **Beautiful terminal UX** | Cobra + [Charm](https://charm.sh) (Bubble Tea · Lip Gloss · Bubbles · Huh): a wizard, live progress bars, and `llmaker top`. |
 | 🌐 **A UI in every box** | Each instance serves its own dark-mode dashboard — gauges, model management, a chat tester, copy-paste snippets. |
 | 🧠 **One stable API** | OpenAI-compatible `/v1/*` (with SSE streaming) for chat, completions, and embeddings — point any OpenAI client at it. |
+| 🧱 **Not just LLMs — the whole stack** | A curated catalog of the services around your models: vector DBs (Qdrant, Chroma, pgvector, Weaviate), Redis, a dedicated embeddings server, Langfuse. `llmaker service add qdrant`. |
+| 🕸️ **They find each other** | Every instance and service joins one network, reachable by name — your app talks to `chat:8080` **and** `qdrant:6333` with zero IP-wrangling. |
 | 🖥️ **Honest about hardware** | Auto-detects GPUs; warns about the Docker-on-macOS no-Metal reality **before** you hit mystery latency. |
-| 📜 **Declarative fleets** | `llm.yaml` + `llmaker apply` — compose-like, but LLM-aware, with a `--prune` reconcile. |
+| 📜 **Declarative stacks** | `llm.yaml` + `llmaker apply` — compose-like, but LLM-aware: LLMs **and** services in one file, with a `--prune` reconcile. |
 | 🪶 **Slim by choice** | A 357 MB CPU-only image (vs 8.5 GB GPU) for laptops, CI, and Macs. |
 | 🤖 **Script-friendly** | `--json` output, `NO_COLOR`/non-TTY aware, sane exit codes. Pretty for humans, parseable for robots. |
 
@@ -242,9 +245,12 @@ curl http://127.0.0.1:11500/v1/chat/completions \
 | `llmaker pull <model> --on <name>` | download a model with a live progress bar — `--default` |
 | `llmaker chat [name]` | interactive or one-shot chat — `--message`, or pipe `stdin` |
 | `llmaker open <name>` | open the instance's web UI — `--print` to just emit the URL |
-| `llmaker logs <name> -f` | stream container logs |
+| `llmaker logs <name> -f` | stream container logs (instance **or** service) |
 | `llmaker stop` / `start` / `rm <name>…` | lifecycle — `rm --force` |
-| `llmaker apply -f llm.yaml` | reconcile a declarative fleet — `--prune` |
+| `llmaker service catalog` | list the services you can run (vector DBs, cache, embeddings, observability) |
+| `llmaker service add <type> [name]` | create + start a service — `--env`, `--port`, `--memory` |
+| `llmaker service ls` / `rm` / `stop` / `start` | manage running services — `--json` |
+| `llmaker apply -f llm.yaml` | reconcile a declarative stack (LLMs **+** services) — `--prune` |
 | `llmaker doctor` | environment check (Docker, GPU, the macOS caveat) |
 | `llmaker build` | **advanced**: generate a custom image build context |
 
@@ -301,18 +307,63 @@ your app never change.
 
 ---
 
-## 📜 Declarative fleets
+## 🧱 Beyond LLMs — the whole stack
 
-```yaml
-# llm.yaml  →  llmaker apply -f llm.yaml [--prune]
-defaults: { backend: ollama, memory: 8g }
-instances:
-  - { name: chat,  model: llama3:8b }
-  - { name: embed, model: nomic-embed-text, memory: 2g }
-  - { name: big,   model: llama3:70b, gpu: true, port: 11550 }
+A real chatbot, FAQ bot, or recommender isn't just a model — it's a model **plus**
+a vector store, a cache, an embedding service, and something to watch it all.
+`llmaker` runs those too, from one curated catalog:
+
+```bash
+llmaker service catalog          # see what's available
+llmaker service add qdrant       # vector DB         → qdrant:6333
+llmaker service add redis        # cache / memory    → redis:6379
+llmaker service add embeddings   # HF TEI embeddings → embeddings:80
+llmaker service add langfuse     # LLM observability → langfuse:3000
+llmaker ls                       # instances *and* services, one view
 ```
 
-Ports left unset are auto-assigned. See [`examples/llm.yaml`](examples/llm.yaml).
+| Category | Services |
+|---|---|
+| **Vector databases** | Qdrant · Chroma · pgvector (Postgres) · Weaviate |
+| **Cache / memory** | Redis (chat memory, sessions, semantic cache) |
+| **Embeddings** | HuggingFace Text-Embeddings-Inference |
+| **Observability** | Langfuse (tracing, prompt analytics, evals) |
+
+**The point is the wiring.** Every instance and service joins one Docker network
+(`llmaker-net`) and is reachable there by its name — no IPs, no `--link`, no
+hand-rolled compose file. Your RAG app, running as its own container or on your
+host, talks to `chat:8080` and `qdrant:6333` and it just resolves:
+
+```bash
+# proof: a throwaway container reaches the service by name
+docker run --rm --network llmaker-net redis:7-alpine redis-cli -h redis ping
+# → PONG
+```
+
+Adding a service is one entry in the catalog (`internal/service/catalog.go`) —
+the CLI, `ls`, `top`, and `apply` pick it up for free.
+
+---
+
+## 📜 Declarative stacks
+
+One file brings up the **whole stack** — LLMs and the services around them —
+and `apply` reconciles to it (services first, since your app may dial them at
+boot):
+
+```yaml
+# stack.yaml  →  llmaker apply -f stack.yaml [--prune]
+defaults: { backend: ollama }
+instances:
+  - { name: chat, model: llama3:8b, memory: 8g }   # → chat:8080
+services:
+  - use: qdrant                                    # → qdrant:6333
+  - { name: cache, use: redis }                    # → cache:6379
+  - { name: embeddings, use: embeddings, env: { MODEL_ID: BAAI/bge-small-en-v1.5 } }
+```
+
+Ports left unset are auto-assigned. A stack can be services-only, too. See
+[`examples/stack.yaml`](examples/stack.yaml) and [`examples/llm.yaml`](examples/llm.yaml).
 
 ---
 
@@ -400,12 +451,13 @@ Both halves are tested: Go command logic runs against an in-memory fake runtime
 ```
 cmd/llmaker/            CLI entrypoint
 internal/
-  backend/              supported engines + image refs
-  engine/               domain model, ports, labels, Runtime interface
+  backend/              supported inference engines + image refs
+  service/              catalog of stack services (vector DBs, cache, …)
+  engine/               domain model (instances + services), ports, labels, Runtime
     dockerrt/           Docker SDK implementation (the only Docker import)
     enginetest/         in-memory Runtime for tests
   facade/               Go client for the facade contract
-  config/               llm.yaml parsing
+  config/               stack.yaml / llm.yaml parsing
   ui/                   Lip Gloss theme, tables, gauges, spinners
   tui/                  `llmaker top` Bubble Tea dashboard
   cli/                  Cobra commands
@@ -467,8 +519,11 @@ the Apple GPU — `doctor` will say so.
 
 - [x] Core CLI + normalized facade (`up · ls · status · pull · chat · open · logs · stop/start/rm`)
 - [x] Live progress, `top` dashboard, the `up` wizard
-- [x] Declarative fleets (`llm.yaml` + `apply --prune`)
+- [x] Declarative stacks (`apply --prune`) — LLMs **and** services in one file
+- [x] **Stack services** — vector DBs, cache, embeddings, observability on a shared network
 - [x] Slim CPU image variant
+- [ ] `llmaker stack init <template>` — one-command RAG / chatbot / FAQ stacks
+- [ ] A first-class LangGraph agent image, wired to the stack
 - [ ] llama.cpp adapter — full model management
 - [ ] `--native` Metal mode on macOS
 - [ ] Multi-arch images → GHCR (`amd64` + `arm64`)

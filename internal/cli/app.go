@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -50,8 +51,22 @@ type App struct {
 	// OpenURL launches a browser; injectable for testing `llmaker open`.
 	OpenURL func(string) error
 
+	// ServiceReady probes whether a service is accepting connections on
+	// host:port. It is injectable so tests can skip real network waits; when
+	// nil it defaults to a TCP dial (waitPortReady).
+	ServiceReady func(ctx context.Context, host string, port int, timeout time.Duration) error
+
 	// forceNoColor is toggled by the global --no-color flag.
 	forceNoColor bool
+}
+
+// waitServiceReady blocks until a service's primary port accepts connections,
+// using the injected prober when present (tests) and a real TCP dial otherwise.
+func (a *App) waitServiceReady(ctx context.Context, host string, port int, timeout time.Duration) error {
+	if a.ServiceReady != nil {
+		return a.ServiceReady(ctx, host, port, timeout)
+	}
+	return waitPortReady(ctx, host, port, timeout)
 }
 
 // Command groups keep `llmaker --help` organized.
@@ -92,6 +107,7 @@ func NewRootCmd(app *App) *cobra.Command {
 	root.AddCommand(
 		newUpCmd(app),
 		newLsCmd(app),
+		newServiceCmd(app),
 		newStatusCmd(app),
 		newTopCmd(app),
 		newPullCmd(app),

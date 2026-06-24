@@ -82,8 +82,17 @@ func runLs(ctx context.Context, app *App, opts lsOptions) error {
 		return nil
 	}
 
+	svcs, _ := app.listServices(ctx, rt, true)
+
 	if len(ins) == 0 {
-		io.Println(t.Muted.Render("No instances yet. Start one with ") + t.Accent.Render("llmaker up") + t.Muted.Render("."))
+		if len(svcs) == 0 {
+			io.Println(t.Muted.Render("Nothing yet. Start an LLM with ") + t.Accent.Render("llmaker up") + t.Muted.Render(" or a service with ") + t.Accent.Render("llmaker service add qdrant") + t.Muted.Render("."))
+			return nil
+		}
+		io.Println(t.Muted.Render("No LLM instances yet. Start one with ") + t.Accent.Render("llmaker up") + t.Muted.Render("."))
+		io.Println()
+		io.Println(t.Heading("Services"))
+		io.Println(renderServiceTable(t, svcs))
 		return nil
 	}
 
@@ -103,6 +112,14 @@ func runLs(ctx context.Context, app *App, opts lsOptions) error {
 		)
 	}
 	io.Println(tbl.Render())
+
+	// Services share the fleet view: an LLM stack is instances plus the infra
+	// around them. They get their own table so the columns stay honest.
+	if len(svcs) > 0 {
+		io.Println()
+		io.Println(t.Heading("Services"))
+		io.Println(renderServiceTable(t, svcs))
+	}
 	return nil
 }
 

@@ -1,6 +1,7 @@
-// Package config parses the declarative fleet file (llm.yaml) used by
-// `llmaker apply`. It is compose-like but LLM-aware: a list of instances with
-// shared defaults, validated and lowered into engine.Spec values.
+// Package config parses the declarative stack file (llm.yaml) used by
+// `llmaker apply`. It is compose-like but LLM-aware: LLM instances plus the
+// services around them (vector DBs, caches, …) with shared defaults, validated
+// and lowered into engine.Spec / engine.ServiceSpec values.
 package config
 
 import (
@@ -12,6 +13,7 @@ import (
 
 	"github.com/raiyanyahya/llmaker/internal/backend"
 	"github.com/raiyanyahya/llmaker/internal/engine"
+	"github.com/raiyanyahya/llmaker/internal/service"
 )
 
 // File is the root of an llm.yaml document.
@@ -19,6 +21,19 @@ type File struct {
 	Version   string     `yaml:"version"`
 	Defaults  Defaults   `yaml:"defaults"`
 	Instances []Instance `yaml:"instances"`
+	Services  []Service  `yaml:"services"`
+}
+
+// Service is one declared infrastructure service (resolved against the catalog).
+type Service struct {
+	Name   string            `yaml:"name"`
+	Use    string            `yaml:"use"` // catalog kind (qdrant, redis, …)
+	Port   int               `yaml:"port"`
+	Host   string            `yaml:"host"`
+	Image  string            `yaml:"image"`
+	Memory string            `yaml:"memory"`
+	CPUs   string            `yaml:"cpus"`
+	Env    map[string]string `yaml:"env"`
 }
 
 // Defaults are applied to any instance that omits a field.
@@ -70,9 +85,9 @@ func Parse(data []byte) (*File, error) {
 // defaults and resolving backends. Ports left at 0 are auto-allocated later by
 // the apply command (so the file can omit ports and stay portable).
 func (f *File) ToSpecs() ([]engine.Spec, error) {
-	if len(f.Instances) == 0 {
-		return nil, fmt.Errorf("no instances declared")
-	}
+	// A stack may declare only services (e.g. a vector DB + cache with no LLM
+	// yet), so an empty instances list is allowed; apply guards the
+	// everything-empty case.
 	seen := map[string]bool{}
 	specs := make([]engine.Spec, 0, len(f.Instances))
 
@@ -140,6 +155,102 @@ func (f *File) Names() []string {
 	out := make([]string, 0, len(f.Instances))
 	for _, in := range f.Instances {
 		out = append(out, engine.NormalizeName(in.Name))
+	}
+	return out
+}
+
+// ToServiceSpecs validates the document's services and lowers them into
+// engine.ServiceSpec values, resolving each against the catalog. Primary host
+// ports left unset (0) are auto-allocated later by apply, so the file stays
+// portable.
+func (f *File) ToServiceSpecs() ([]engine.ServiceSpec, error) {
+	seen := map[string]bool{}
+	specs := make([]engine.ServiceSpec, 0, len(f.Services))
+
+	for i, s := range f.Services {
+		kind := firstNonEmpty(s.Use, s.Name)
+		cat, err := service.Get(kind)
+		if err != nil {
+			return nil, fmt.Errorf("service #%d: %w", i+1, err)
+		}
+		name := engine.NormalizeName(firstNonEmpty(s.Name, cat.Kind))
+		if !engine.ValidName(name) {
+			return nil, fmt.Errorf("service %q: invalid name (use lowercase letters, digits, - or _)", name)
+		}
+		if seen[name] {
+			return nil, fmt.Errorf("duplicate service name %q", name)
+		}
+		seen[name] = true
+
+		ports := make([]engine.PortBinding, 0, len(cat.Ports))
+		for _, p := range cat.Ports {
+			host := 0
+			if p.Primary && s.Port > 0 {
+				host = s.Port
+			}
+			ports = append(ports, engine.PortBinding{
+				Host: host, Container: p.Container, Name: p.Name, Primary: p.Primary,
+			})
+		}
+		volumes := make([]engine.VolumeBinding, 0, len(cat.Volumes))
+		for _, v := range cat.Volumes {
+			volumes = append(volumes, engine.VolumeBinding{
+				Name: engine.ServiceVolumeName(name, v.Suffix), Path: v.Path,
+			})
+		}
+
+		spec := engine.ServiceSpec{
+			Name:     name,
+			Service:  cat.Kind,
+			Category: string(cat.Category),
+			Image:    firstNonEmpty(s.Image, cat.Image),
+			Ports:    ports,
+			Host:     firstNonEmpty(s.Host, f.Defaults.Host, "127.0.0.1"),
+			Env:      mergeServiceEnv(cat.Env, s.Env),
+			Volumes:  volumes,
+		}
+
+		if s.Memory != "" {
+			bytes, err := engine.ParseSize(s.Memory)
+			if err != nil {
+				return nil, fmt.Errorf("service %q: memory: %w", name, err)
+			}
+			spec.Memory = bytes
+		}
+		if s.CPUs != "" {
+			cpus, err := parseFloat(s.CPUs)
+			if err != nil {
+				return nil, fmt.Errorf("service %q: cpus: %w", name, err)
+			}
+			spec.CPUs = cpus
+		}
+
+		specs = append(specs, spec)
+	}
+
+	sort.Slice(specs, func(i, j int) bool { return specs[i].Name < specs[j].Name })
+	return specs, nil
+}
+
+// ServiceNames returns the declared service names (normalized).
+func (f *File) ServiceNames() []string {
+	out := make([]string, 0, len(f.Services))
+	for _, s := range f.Services {
+		out = append(out, engine.NormalizeName(firstNonEmpty(s.Name, s.Use)))
+	}
+	return out
+}
+
+func mergeServiceEnv(base, over map[string]string) map[string]string {
+	out := make(map[string]string, len(base)+len(over))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range over {
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

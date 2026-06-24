@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	imagetypes "github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
@@ -23,6 +25,11 @@ import (
 	"github.com/raiyanyahya/llmaker/internal/backend"
 	"github.com/raiyanyahya/llmaker/internal/engine"
 )
+
+// NetworkName is the shared user-defined bridge network every llmaker container
+// joins. On it Docker provides DNS by container alias, so an instance and a
+// service can reach each other by their llmaker name (e.g. "qdrant:6333").
+const NetworkName = "llmaker-net"
 
 // Runtime implements engine.Runtime (and engine.ImagePuller) using Docker.
 type Runtime struct {
@@ -83,13 +90,148 @@ func (r *Runtime) Create(ctx context.Context, spec engine.Spec) (engine.Instance
 		Resources:     resources(spec),
 	}
 
-	created, err := r.cli.ContainerCreate(ctx, cfg, hostCfg, nil, nil, cname)
+	netCfg, err := r.networkConfig(ctx, spec.Name)
+	if err != nil {
+		return engine.Instance{}, err
+	}
+
+	created, err := r.cli.ContainerCreate(ctx, cfg, hostCfg, netCfg, nil, cname)
 	if err != nil {
 		return engine.Instance{}, fmt.Errorf("create container: %w", err)
 	}
 
 	inst := engine.InstanceFromLabels(created.ID, engine.StateCreated, labels)
 	return inst, nil
+}
+
+// ensureNetwork makes sure the shared llmaker network exists, creating it once.
+// It is safe to call concurrently-ish: a racing create that loses just reuses
+// the winner's network.
+func (r *Runtime) ensureNetwork(ctx context.Context) error {
+	if _, err := r.cli.NetworkInspect(ctx, NetworkName, network.InspectOptions{}); err == nil {
+		return nil
+	}
+	key, val := engine.ManagedFilter()
+	_, err := r.cli.NetworkCreate(ctx, NetworkName, network.CreateOptions{
+		Driver: "bridge",
+		Labels: map[string]string{key: val},
+	})
+	// Tolerate a concurrent creator having won the race.
+	if err != nil && !isAlreadyExists(err) {
+		return fmt.Errorf("create network %s: %w", NetworkName, err)
+	}
+	return nil
+}
+
+// networkConfig ensures the network exists and returns the config that attaches
+// a new container to it under a DNS alias equal to its llmaker name, so peers
+// can resolve it by that short name.
+func (r *Runtime) networkConfig(ctx context.Context, name string) (*network.NetworkingConfig, error) {
+	if err := r.ensureNetwork(ctx); err != nil {
+		return nil, err
+	}
+	return &network.NetworkingConfig{
+		EndpointsConfig: map[string]*network.EndpointSettings{
+			NetworkName: {Aliases: []string{name}},
+		},
+	}, nil
+}
+
+// CreateService provisions an infrastructure service container: its data
+// volumes, all its port bindings, llmaker labels, and attachment to the shared
+// network. It does not start the container.
+func (r *Runtime) CreateService(ctx context.Context, spec engine.ServiceSpec) (engine.Service, error) {
+	cname := engine.ContainerName(spec.Name)
+	labels := engine.ServiceLabels(spec)
+	hostIP := spec.Host
+	if hostIP == "" {
+		hostIP = "127.0.0.1"
+	}
+
+	binds := make([]string, 0, len(spec.Volumes))
+	for _, v := range spec.Volumes {
+		if _, err := r.cli.VolumeCreate(ctx, volume.CreateOptions{Name: v.Name, Labels: labels}); err != nil {
+			return engine.Service{}, fmt.Errorf("create volume %s: %w", v.Name, err)
+		}
+		binds = append(binds, v.Name+":"+v.Path)
+	}
+
+	exposed := nat.PortSet{}
+	bindings := nat.PortMap{}
+	for _, p := range spec.Ports {
+		cp := nat.Port(fmt.Sprintf("%d/tcp", p.Container))
+		exposed[cp] = struct{}{}
+		bindings[cp] = []nat.PortBinding{{HostIP: hostIP, HostPort: strconv.Itoa(p.Host)}}
+	}
+
+	cfg := &container.Config{
+		Image:        spec.Image,
+		Env:          envSlice(spec.Env),
+		Labels:       labels,
+		ExposedPorts: exposed,
+	}
+	hostCfg := &container.HostConfig{
+		PortBindings:  bindings,
+		Binds:         binds,
+		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyUnlessStopped},
+		Resources:     serviceResources(spec),
+	}
+
+	netCfg, err := r.networkConfig(ctx, spec.Name)
+	if err != nil {
+		return engine.Service{}, err
+	}
+
+	created, err := r.cli.ContainerCreate(ctx, cfg, hostCfg, netCfg, nil, cname)
+	if err != nil {
+		return engine.Service{}, fmt.Errorf("create service container: %w", err)
+	}
+	return engine.ServiceFromLabels(created.ID, engine.StateCreated, labels), nil
+}
+
+// ListServices returns every managed service container.
+func (r *Runtime) ListServices(ctx context.Context) ([]engine.Service, error) {
+	key, val := engine.ManagedFilter()
+	f := filters.NewArgs(
+		filters.Arg("label", key+"="+val),
+		filters.Arg("label", engine.LabelType+"="+engine.TypeService),
+	)
+	summaries, err := r.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
+	if err != nil {
+		return nil, fmt.Errorf("list services: %w", err)
+	}
+	out := make([]engine.Service, 0, len(summaries))
+	for _, s := range summaries {
+		svc := engine.ServiceFromLabels(s.ID, mapState(s.State), s.Labels)
+		if svc.Created.IsZero() && s.Created > 0 {
+			svc.Created = time.Unix(s.Created, 0)
+		}
+		out = append(out, svc)
+	}
+	return out, nil
+}
+
+// GetService inspects a single managed service by name.
+func (r *Runtime) GetService(ctx context.Context, name string) (engine.Service, error) {
+	info, err := r.cli.ContainerInspect(ctx, engine.ContainerName(name))
+	if err != nil {
+		if client.IsErrNotFound(err) {
+			return engine.Service{}, engine.ErrNotFound
+		}
+		return engine.Service{}, err
+	}
+	if engine.TypeOf(info.Config.Labels) != engine.TypeService {
+		return engine.Service{}, engine.ErrNotFound
+	}
+	state := engine.StateUnknown
+	if info.State != nil {
+		state = mapState(info.State.Status)
+	}
+	svc := engine.ServiceFromLabels(info.ID, state, info.Config.Labels)
+	if created, perr := time.Parse(time.RFC3339Nano, info.Created); perr == nil && svc.Created.IsZero() {
+		svc.Created = created
+	}
+	return svc, nil
 }
 
 // Start starts a previously created instance.
@@ -109,15 +251,34 @@ func (r *Runtime) Stop(ctx context.Context, name string, timeout time.Duration) 
 	return nil
 }
 
-// Remove deletes the container and its model volume.
+// Remove deletes the container (instance or service) and the named volumes
+// llmaker created for it. Named volumes aren't removed with the container, so
+// we clean up every volume labeled for this name best-effort.
 func (r *Runtime) Remove(ctx context.Context, name string, force bool) error {
 	cname := engine.ContainerName(name)
 	if err := r.cli.ContainerRemove(ctx, cname, container.RemoveOptions{Force: force, RemoveVolumes: false}); err != nil {
 		return mapErr(name, err)
 	}
-	// Named volume isn't removed with the container; clean it up best-effort.
-	_ = r.cli.VolumeRemove(ctx, engine.VolumeName(name), true)
+	r.removeVolumes(ctx, name)
 	return nil
+}
+
+// removeVolumes deletes every managed volume tagged with this llmaker name. It
+// covers both the instance model cache and a service's data volumes, and is
+// best-effort so a missing volume never blocks removal.
+func (r *Runtime) removeVolumes(ctx context.Context, name string) {
+	key, val := engine.ManagedFilter()
+	f := filters.NewArgs(
+		filters.Arg("label", key+"="+val),
+		filters.Arg("label", engine.LabelName+"="+name),
+	)
+	if list, err := r.cli.VolumeList(ctx, volume.ListOptions{Filters: f}); err == nil {
+		for _, v := range list.Volumes {
+			_ = r.cli.VolumeRemove(ctx, v.Name, true)
+		}
+	}
+	// Belt-and-suspenders for the legacy fixed model-volume name.
+	_ = r.cli.VolumeRemove(ctx, engine.VolumeName(name), true)
 }
 
 // List returns every llmaker-managed instance (running or not).
@@ -130,6 +291,10 @@ func (r *Runtime) List(ctx context.Context) ([]engine.Instance, error) {
 	}
 	out := make([]engine.Instance, 0, len(summaries))
 	for _, s := range summaries {
+		// Services share the managed-by label; keep ls to LLM instances only.
+		if engine.TypeOf(s.Labels) == engine.TypeService {
+			continue
+		}
 		inst := engine.InstanceFromLabels(s.ID, mapState(s.State), s.Labels)
 		if inst.Created.IsZero() && s.Created > 0 {
 			inst.Created = time.Unix(s.Created, 0)
@@ -219,6 +384,23 @@ func resources(spec engine.Spec) container.Resources {
 		}}
 	}
 	return res
+}
+
+func serviceResources(spec engine.ServiceSpec) container.Resources {
+	res := container.Resources{}
+	if spec.Memory > 0 {
+		res.Memory = spec.Memory
+	}
+	if spec.CPUs > 0 {
+		res.NanoCPUs = int64(spec.CPUs * 1e9)
+	}
+	return res
+}
+
+// isAlreadyExists reports whether err is Docker's "already exists" conflict,
+// which we tolerate when racing to create the shared network.
+func isAlreadyExists(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "already exists")
 }
 
 func envSlice(env map[string]string) []string {

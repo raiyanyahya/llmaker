@@ -1,0 +1,35 @@
+# Example llmaker stack file — a whole RAG stack in one declaration.
+#   llmaker apply -f examples/stack.yaml
+#   llmaker apply -f examples/stack.yaml --prune   # also remove anything not listed
+#
+# A stack is LLM instances + the infrastructure around them (vector DBs, caches,
+# embeddings, observability). Everything joins one network, so your app reaches
+# each piece by name: `chat:8080`, `qdrant:6333`, `cache:6379`.
+#
+# Ports left unset are auto-assigned. Services come up before instances.
+version: "1"
+
+defaults:
+  backend: ollama
+  host: 127.0.0.1
+
+instances:
+  # The chat/generation model. Reachable in-network as chat:8080.
+  - name: chat
+    model: llama3:8b
+    memory: 8g
+
+services:
+  # Vector database for retrieval. In-network: qdrant:6333.
+  - use: qdrant
+
+  # A dedicated embeddings endpoint (alternative to embedding via Ollama).
+  # In-network: embeddings:80. Pick the model with env.
+  - name: embeddings
+    use: embeddings
+    env:
+      MODEL_ID: BAAI/bge-small-en-v1.5
+
+  # Redis for chat memory / sessions / semantic cache. In-network: cache:6379.
+  - name: cache
+    use: redis

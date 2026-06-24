@@ -131,10 +131,65 @@ instances:
 	}
 }
 
-func TestRejectsEmptyFleet(t *testing.T) {
+func TestShippedExamplesAreValid(t *testing.T) {
+	for _, path := range []string{"../../examples/llm.yaml", "../../examples/stack.yaml"} {
+		f, err := Load(path)
+		if err != nil {
+			t.Fatalf("%s: load: %v", path, err)
+		}
+		if _, err := f.ToSpecs(); err != nil {
+			t.Fatalf("%s: ToSpecs: %v", path, err)
+		}
+		if _, err := f.ToServiceSpecs(); err != nil {
+			t.Fatalf("%s: ToServiceSpecs: %v", path, err)
+		}
+	}
+}
+
+func TestStackServiceLowering(t *testing.T) {
+	f, err := Parse([]byte(`
+instances:
+  - { name: chat, model: llama3:8b }
+services:
+  - use: qdrant
+  - { name: cache, use: redis }
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	svcs, err := f.ToServiceSpecs()
+	if err != nil {
+		t.Fatalf("ToServiceSpecs: %v", err)
+	}
+	if len(svcs) != 2 {
+		t.Fatalf("want 2 services, got %d", len(svcs))
+	}
+	// Sorted by name: cache, qdrant.
+	if svcs[0].Name != "cache" || svcs[0].Service != "redis" {
+		t.Errorf("svc[0] = %+v", svcs[0])
+	}
+	if svcs[1].Name != "qdrant" || len(svcs[1].Ports) != 2 {
+		t.Errorf("svc[1] = %+v (want qdrant w/ 2 ports)", svcs[1])
+	}
+	if len(svcs[1].Volumes) != 1 || svcs[1].Volumes[0].Name != "llmaker-qdrant-storage" {
+		t.Errorf("qdrant volume wrong: %+v", svcs[1].Volumes)
+	}
+}
+
+func TestEmptyFileYieldsNoSpecs(t *testing.T) {
+	// A stack may declare only services, so an empty instances list is no longer
+	// an error here; apply is what rejects an entirely empty stack.
 	f, _ := Parse([]byte(`version: "1"`))
-	if _, err := f.ToSpecs(); err == nil {
-		t.Fatal("expected error for empty fleet")
+	specs, err := f.ToSpecs()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(specs) != 0 {
+		t.Fatalf("expected no specs, got %d", len(specs))
+	}
+	svc, err := f.ToServiceSpecs()
+	if err != nil || len(svc) != 0 {
+		t.Fatalf("expected no service specs, got %d (err=%v)", len(svc), err)
 	}
 }
 

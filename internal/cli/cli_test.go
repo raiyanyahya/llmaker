@@ -34,6 +34,8 @@ func testApp(t *testing.T) (*App, *enginetest.Fake, *facadetest.Fake, *bytes.Buf
 			return rt, nil
 		},
 		OpenURL: func(string) error { return nil },
+		// Skip real TCP readiness probes against the fake runtime.
+		ServiceReady: func(context.Context, string, int, time.Duration) error { return nil },
 	}
 	return app, rt, fc, &out
 }
