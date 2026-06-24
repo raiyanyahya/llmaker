@@ -371,9 +371,12 @@ curl -s "$A/api/chat" -H 'content-type: application/json' \
 # → {"answer":"It runs your whole local LLM stack.","sources":[...]}
 ```
 
-The agent is a small FastAPI + LangGraph app (`agent/`): a `retrieve → generate`
-graph over any OpenAI-compatible LLM and embeddings endpoint, with Qdrant for
-storage. Swap the model or the vector DB — the graph doesn't change.
+The agent is a small FastAPI + LangGraph app (`agent/`): a
+`rewrite → retrieve → rerank → generate` graph over any OpenAI-compatible LLM and
+embeddings endpoint, with Qdrant for storage. It's **multi-turn** (pass
+`history` and follow-ups like "when was *it* released?" get rewritten into
+standalone queries) and reranks with **MMR** for diverse, non-redundant context.
+Swap the model or the vector DB — the graph doesn't change.
 
 **It's observable, too.** The `rag` template also brings up
 [Langfuse](https://langfuse.com) (and a Postgres for it), and the agent traces
