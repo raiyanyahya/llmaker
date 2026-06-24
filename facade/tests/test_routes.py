@@ -101,6 +101,22 @@ def test_requests_counter_increments(client):
     assert after == before + 1
 
 
+def test_tokens_per_second_recorded(client):
+    # Starts at zero, then a completion with usage populates the rolling metric.
+    assert client.get("/api/status").json()["metrics"]["tokens_per_second"] == 0
+    client.post("/v1/chat/completions", json={"model": "m", "messages": [{"role": "user", "content": "hi"}]})
+    assert client.get("/api/status").json()["metrics"]["tokens_per_second"] > 0
+
+
+def test_invalid_json_returns_400(client):
+    r = client.post(
+        "/v1/chat/completions",
+        content="{not valid json",
+        headers={"Content-Type": "application/json"},
+    )
+    assert r.status_code == 400
+
+
 def test_web_ui_served(client):
     r = client.get("/")
     assert r.status_code == 200

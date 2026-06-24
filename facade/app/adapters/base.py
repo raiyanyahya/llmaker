@@ -10,7 +10,6 @@ from ..models import InstalledModel, PullEvent, RunningModel
 # A chat/completions result is either a full JSON dict (non-streaming) or an
 # async iterator of Server-Sent-Event byte chunks (streaming). Routes duck-type
 # on ``__aiter__`` to decide how to respond.
-ChatResult = "dict | AsyncIterator[bytes]"
 
 
 class Adapter(ABC):

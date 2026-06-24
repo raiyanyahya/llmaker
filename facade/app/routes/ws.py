@@ -8,6 +8,7 @@ import asyncio
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from ..deps import token_matches
 from .status import build_status
 
 router = APIRouter()
@@ -16,7 +17,7 @@ router = APIRouter()
 @router.websocket("/ws/status")
 async def ws_status(ws: WebSocket) -> None:
     settings = ws.app.state.settings
-    if settings.api_key and ws.query_params.get("api_key") != settings.api_key:
+    if settings.api_key and not token_matches(ws.query_params.get("api_key", ""), settings.api_key):
         await ws.close(code=1008)  # policy violation
         return
 

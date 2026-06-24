@@ -114,7 +114,7 @@ The space is crowded, so let's be honest about the wedge — it's the *combinati
 
 ```bash
 # 1) Prebuilt binary (Linux / macOS)
-curl -fsSL https://raw.githubusercontent.com/raiyanyahya/llmaker/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/raiyanyahya/llmaker/master/scripts/install.sh | sh
 
 # 2) With the Go toolchain
 go install github.com/raiyanyahya/llmaker/cmd/llmaker@latest

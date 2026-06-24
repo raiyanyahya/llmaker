@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # llmaker installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/raiyanyahya/llmaker/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/raiyanyahya/llmaker/master/scripts/install.sh | sh
 #
 # Downloads the latest release binary for your OS/arch into a bin directory on
 # your PATH. Falls back to `go install` when no prebuilt asset is available.

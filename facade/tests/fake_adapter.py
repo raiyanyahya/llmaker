@@ -40,7 +40,10 @@ class FakeAdapter(Adapter):
                 yield b"data: [DONE]\n\n"
 
             return gen()
-        return {"choices": [{"message": {"role": "assistant", "content": "Hello world"}}]}
+        return {
+            "choices": [{"message": {"role": "assistant", "content": "Hello world"}}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+        }
 
     async def completions(self, payload: dict):
         return {"choices": [{"text": "hello"}]}
