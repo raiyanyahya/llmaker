@@ -48,8 +48,12 @@ an orchestration layer, and observability — each containerized, networked, and
 configured to discover the others. Assembling that is a recurring tax: a sprawl of
 `docker run` flags, a brittle Compose file, and hundreds of lines of framework glue.
 
-llmaker removes that tax. One CLI provisions and operates the whole stack — from
-a single model to a complete application:
+llmaker removes that tax. One CLI provisions the entire stack on a private network
+and **operates it as a single fleet** — live status, logs, and a resource
+dashboard across every model and service. Stacks are **declarative and
+reconcilable** (`apply --prune`), models are **OpenAI-compatible**, retrieval is
+**traced out of the box**, and nothing leaves your hardware. From a single model
+to a complete application:
 
 ```bash
 # ── Build a complete application stack ──────────────────────────
