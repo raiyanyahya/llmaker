@@ -168,6 +168,69 @@ Switch the whole thing to llama.cpp later? `--backend llamacpp`. Your code doesn
 
 ---
 
+## 🔗 Drop it into the tools you already use
+
+It's an OpenAI-compatible endpoint, so anything that speaks OpenAI works
+unchanged — just point it at `http://127.0.0.1:11500/v1` with any non-empty key.
+
+<details>
+<summary><b>aider</b> — AI pair programming in your repo</summary>
+
+```bash
+export OPENAI_API_BASE=http://127.0.0.1:11500/v1
+export OPENAI_API_KEY=not-needed
+aider --model openai/qwen2.5-coder:7b      # llmaker up code
+```
+</details>
+
+<details>
+<summary><b>Continue.dev</b> — the VS Code / JetBrains copilot</summary>
+
+```json
+// ~/.continue/config.json
+{
+  "models": [{
+    "title": "llmaker",
+    "provider": "openai",
+    "model": "llama3:8b",
+    "apiBase": "http://127.0.0.1:11500/v1",
+    "apiKey": "not-needed"
+  }]
+}
+```
+</details>
+
+<details>
+<summary><b>LangChain</b> / <b>LlamaIndex</b></summary>
+
+```python
+# LangChain
+from langchain_openai import ChatOpenAI
+llm = ChatOpenAI(base_url="http://127.0.0.1:11500/v1",
+                 api_key="not-needed", model="llama3:8b")
+
+# LlamaIndex
+from llama_index.llms.openai_like import OpenAILike
+llm = OpenAILike(api_base="http://127.0.0.1:11500/v1",
+                 api_key="not-needed", model="llama3:8b", is_chat_model=True)
+```
+</details>
+
+<details>
+<summary><b>curl</b> — no SDK at all</summary>
+
+```bash
+curl http://127.0.0.1:11500/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"llama3:8b","messages":[{"role":"user","content":"hi"}]}'
+```
+</details>
+
+> RAG? `llmaker up embed` gives you a `/v1/embeddings` endpoint on the same
+> contract — point your vector store at it the same way.
+
+---
+
 ## 🧭 Commands
 
 | Command | What it does |
@@ -218,7 +281,8 @@ Switch the whole thing to llama.cpp later? `--backend llamacpp`. Your code doesn
 - **No local state file.** Every instance is a labeled container, so the fleet
   view is always reality.
 
-📄 Full design rationale: [`local-llm-cli.md`](local-llm-cli.md).
+📄 The full facade contract — every endpoint and env var — lives in
+[`facade/README.md`](facade/README.md).
 
 ---
 
@@ -348,6 +412,48 @@ internal/
 facade/                 Python / FastAPI control-plane + web UI
 images/                 backend Dockerfiles + entrypoints
 ```
+
+---
+
+## ❓ FAQ
+
+<details>
+<summary><b>Do I need a GPU?</b></summary>
+
+No. The slim `:cpu` image runs anywhere Docker does. A GPU just makes large
+models faster — `llmaker up small` is happy on a laptop CPU.
+</details>
+
+<details>
+<summary><b>Why a Python facade instead of hitting Ollama directly?</b></summary>
+
+So your app targets **one** contract forever. Swap Ollama for llama.cpp (or a
+future vLLM/TGI) and the endpoint, the web UI, and your client code never change
+— only a `--backend` flag does.
+</details>
+
+<details>
+<summary><b>Is my model data sent anywhere?</b></summary>
+
+No. Everything runs in a local container bound to `127.0.0.1` by default.
+Exposing it is opt-in (`--host 0.0.0.0`) and pairs with `--api-key`.
+</details>
+
+<details>
+<summary><b>Can I run several models at once?</b></summary>
+
+Yes — that's the point. Each is its own isolated instance on its own port;
+`llmaker ls` and `llmaker top` show the whole fleet. Define them once in
+`llm.yaml` and `llmaker apply`.
+</details>
+
+<details>
+<summary><b>Something's wrong — where do I look first?</b></summary>
+
+`llmaker doctor` (environment), `llmaker status <name>` (the instance),
+`llmaker logs <name> -f` (the container). On macOS, remember Docker can't see
+the Apple GPU — `doctor` will say so.
+</details>
 
 ---
 
