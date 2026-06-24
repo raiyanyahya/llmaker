@@ -76,7 +76,9 @@ class OllamaAdapter(Adapter):
             async with self._client.stream("POST", f"{self.base}/api/pull", json=payload) as resp:
                 if resp.status_code != 200:
                     body = (await resp.aread()).decode(errors="replace")
-                    yield PullEvent(status="error", error=f"pull failed ({resp.status_code}): {body}")
+                    yield PullEvent(
+                        status="error", error=f"pull failed ({resp.status_code}): {body}"
+                    )
                     return
                 async for line in resp.aiter_lines():
                     line = line.strip()

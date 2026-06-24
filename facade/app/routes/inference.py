@@ -18,7 +18,7 @@ async def _read_json(request: Request) -> dict:
     try:
         return await request.json()
     except Exception:
-        raise HTTPException(status_code=400, detail="invalid JSON body")
+        raise HTTPException(status_code=400, detail="invalid JSON body") from None
 
 
 def _respond(result):

@@ -13,9 +13,8 @@ from fastapi.staticfiles import StaticFiles
 from . import metrics
 from .adapters import Adapter, build_adapter
 from .config import Settings
-from .routes import health, inference
+from .routes import health, inference, status, ws
 from .routes import models as models_routes
-from .routes import status, ws
 from .state import AppState
 
 STATIC_DIR = Path(__file__).parent / "static"

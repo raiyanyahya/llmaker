@@ -12,7 +12,9 @@ class FakeAdapter(Adapter):
     def __init__(self) -> None:
         self.healthy = True
         self.deleted: list[str] = []
-        self._installed = [InstalledModel(name="llama3:8b", size=4_000_000_000, modified="2024-01-01")]
+        self._installed = [
+            InstalledModel(name="llama3:8b", size=4_000_000_000, modified="2024-01-01")
+        ]
 
     async def health(self) -> bool:
         return self.healthy
@@ -34,6 +36,7 @@ class FakeAdapter(Adapter):
 
     async def chat(self, payload: dict):
         if payload.get("stream"):
+
             async def gen():
                 yield b'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'
                 yield b'data: {"choices":[{"delta":{"content":" world"}}]}\n\n'

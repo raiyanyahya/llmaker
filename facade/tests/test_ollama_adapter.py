@@ -13,9 +13,13 @@ from app.config import Settings
 def _handler(request: httpx.Request) -> httpx.Response:
     path = request.url.path
     if path == "/api/tags":
-        return httpx.Response(200, json={"models": [{"name": "llama3:8b", "size": 4096, "modified_at": "2024-05-01"}]})
+        return httpx.Response(
+            200, json={"models": [{"name": "llama3:8b", "size": 4096, "modified_at": "2024-05-01"}]}
+        )
     if path == "/api/ps":
-        return httpx.Response(200, json={"models": [{"name": "llama3:8b", "size": 4096, "size_vram": 8192}]})
+        return httpx.Response(
+            200, json={"models": [{"name": "llama3:8b", "size": 4096, "size_vram": 8192}]}
+        )
     if path == "/api/pull":
         body = (
             b'{"status":"pulling manifest"}\n'
@@ -26,7 +30,9 @@ def _handler(request: httpx.Request) -> httpx.Response:
     if path == "/api/delete":
         return httpx.Response(200)
     if path == "/v1/chat/completions":
-        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "hi"}}]})
+        return httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", "content": "hi"}}]}
+        )
     if path == "/v1/embeddings":
         return httpx.Response(200, json={"data": [{"embedding": [0.5]}]})
     if path == "/v1/models":

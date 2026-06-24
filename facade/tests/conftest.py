@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import pytest
+from fake_adapter import FakeAdapter
 from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
-from fake_adapter import FakeAdapter
 
 
 @pytest.fixture

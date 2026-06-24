@@ -47,6 +47,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install
         run: pip install -e ".[dev]"
+      - name: Lint (ruff)
+        run: |
+          ruff check app tests
+          ruff format --check app tests
       - name: Test
         run: python -m pytest -q
 
@@ -55,5 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build Ollama image
-        run: docker build -f images/ollama/Dockerfile -t llmaker-ollama:ci .
+      # Build the slim CPU image: it exercises the same multi-stage facade
+      # install as the GPU image but is ~360MB vs ~8.5GB, so CI stays fast.
+      - name: Build slim CPU Ollama image
+        run: docker build -f images/ollama/Dockerfile.cpu -t llmaker-ollama:ci .

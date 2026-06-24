@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 
-from app.config import Settings
-from app.main import create_app
 from fake_adapter import FakeAdapter
 from fastapi.testclient import TestClient
+
+from app.config import Settings
+from app.main import create_app
 
 
 def test_health_ok(client):
@@ -45,7 +46,7 @@ def test_list_models(client):
 def test_pull_streams_ndjson(client):
     r = client.post("/api/models/pull", json={"model": "qwen2.5:7b"})
     assert r.status_code == 200
-    lines = [json.loads(l) for l in r.text.strip().splitlines() if l.strip()]
+    lines = [json.loads(ln) for ln in r.text.strip().splitlines() if ln.strip()]
     assert lines[0]["status"] == "downloading"
     assert lines[-1]["status"] == "success"
     # The model becomes installed afterwards.
@@ -66,7 +67,9 @@ def test_set_default(client):
 
 
 def test_chat_non_streaming(client):
-    r = client.post("/v1/chat/completions", json={"model": "m", "messages": [{"role": "user", "content": "hi"}]})
+    r = client.post(
+        "/v1/chat/completions", json={"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    )
     assert r.status_code == 200
     assert r.json()["choices"][0]["message"]["content"] == "Hello world"
 
@@ -104,7 +107,9 @@ def test_requests_counter_increments(client):
 def test_tokens_per_second_recorded(client):
     # Starts at zero, then a completion with usage populates the rolling metric.
     assert client.get("/api/status").json()["metrics"]["tokens_per_second"] == 0
-    client.post("/v1/chat/completions", json={"model": "m", "messages": [{"role": "user", "content": "hi"}]})
+    client.post(
+        "/v1/chat/completions", json={"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    )
     assert client.get("/api/status").json()["metrics"]["tokens_per_second"] > 0
 
 

@@ -33,7 +33,7 @@ class Settings:
     version: str = __version__
 
     @classmethod
-    def from_env(cls, environ: dict[str, str] | None = None) -> "Settings":
+    def from_env(cls, environ: dict[str, str] | None = None) -> Settings:
         env = dict(os.environ if environ is None else environ)
         return cls(
             backend=env.get("LLMAKER_BACKEND", "ollama").strip().lower() or "ollama",
