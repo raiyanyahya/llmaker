@@ -2,7 +2,7 @@
 
 # 🦙 llmaker
 
-### One CLI to spin up isolated, self-hosted LLM servers — and run the whole fleet from your terminal.
+### Spin up isolated, self-hosted LLM servers and run the whole fleet from your terminal.
 
 **Local LLMs that feel like `docker compose up`, not a CUDA scavenger hunt.**
 
