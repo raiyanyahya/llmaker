@@ -16,10 +16,23 @@ engines locally. No third-party API keys. No data leaving your machine.
 
 [![CI](https://github.com/raiyanyahya/llmaker/actions/workflows/ci.yml/badge.svg)](https://github.com/raiyanyahya/llmaker/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/raiyanyahya/llmaker)](https://goreportcard.com/report/github.com/raiyanyahya/llmaker)
-[![Go Version](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)](go.mod)
-[![LangGraph](https://img.shields.io/badge/agent-LangGraph-1C3C3C)](https://langchain-ai.github.io/langgraph/)
+[![Self-hosted](https://img.shields.io/badge/100%25-self--hosted-success)](#why-self-host-your-llm-stack)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](#roadmap)
+
+[![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)](go.mod)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](agent/)
+[![Docker](https://img.shields.io/badge/Docker-required-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/get-docker/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](facade/)
+[![LangGraph](https://img.shields.io/badge/agent-LangGraph-1C3C3C)](https://langchain-ai.github.io/langgraph/)
+[![Ollama](https://img.shields.io/badge/backend-Ollama-000000?logo=ollama&logoColor=white)](https://ollama.com)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey?logo=linux&logoColor=white)](#hardware--images)
+
+[![Stars](https://img.shields.io/github/stars/raiyanyahya/llmaker?logo=github&color=yellow)](https://github.com/raiyanyahya/llmaker/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/raiyanyahya/llmaker?logo=git&logoColor=white)](https://github.com/raiyanyahya/llmaker/commits/master)
+[![Issues](https://img.shields.io/github/issues/raiyanyahya/llmaker?logo=github)](https://github.com/raiyanyahya/llmaker/issues)
+[![Code size](https://img.shields.io/github/languages/code-size/raiyanyahya/llmaker?logo=github)](https://github.com/raiyanyahya/llmaker)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
 [Quickstart](#quickstart) · [Why llmaker](#why-self-host-your-llm-stack) · [Stacks](#stacks) · [The agent](#the-agent) · [Architecture](#architecture) · [CLI](#cli-reference) · [Roadmap](#roadmap)
 
