@@ -48,26 +48,38 @@ an orchestration layer, and observability — each containerized, networked, and
 configured to discover the others. Assembling that is a recurring tax: a sprawl of
 `docker run` flags, a brittle Compose file, and hundreds of lines of framework glue.
 
-llmaker removes that tax. It treats the modern LLM stack as a first-class unit:
+llmaker removes that tax. It treats the modern LLM stack as a first-class unit —
+choose an application, provision it, and use it:
 
 ```bash
-# Provision a complete RAG application stack — model, vector DB,
-# embeddings, a retrieval agent, and tracing — wired and running.
-llmaker stack init rag
-llmaker apply
+# 1 · Choose what to build. Each is a complete, self-hosted stack:
+llmaker stack init rag        #  Document Q&A (RAG) — grounded answers with sources
+#                  chatbot    #  A multi-turn conversational assistant
+#                  faq        #  A knowledge-base / support bot
+#                  recommend  #  A semantic recommendation engine (no LLM required)
 
-# Ingest your documents and query them. Answers are grounded, with sources.
-curl $AGENT/api/ingest -F file=@employee-handbook.pdf
-curl $AGENT/api/chat   -d '{"question":"What is our refund policy?"}'
-# → {"answer":"Refunds are issued within 30 days…",
-#    "sources":[{"source":"employee-handbook.pdf","score":0.88}]}
+# 2 · Provision it. One command brings up the whole stack — model, vector DB,
+#     embeddings, the retrieval agent, and tracing — networked and ready:
+llmaker apply                 #  reads stack.yaml; --prune reconciles to it
+
+# 3 · Use it. Ingest your data, then query the running stack over HTTP:
+AGENT=$(llmaker service ls --json | jq -r '.[] | select(.service=="agent").url')
+
+curl "$AGENT/api/ingest" -F file=@employee-handbook.pdf
+curl "$AGENT/api/chat"   -d '{"question": "What is our refund policy?"}'
+# → {"answer":  "Refunds are issued within 30 days of purchase…",
+#    "sources": [{"source": "employee-handbook.pdf", "score": 0.88}]}
 ```
 
-That single `apply` provisions six containers that already know how to find each
+That single `apply` provisions containers that already know how to find each
 other — an LLM, a vector database, an embeddings server, a
 [LangGraph](https://langchain-ai.github.io/langgraph/) retrieval agent, a Postgres,
 and [Langfuse](https://langfuse.com) for tracing — on a private network, with no
 manual configuration. Everything runs on your hardware.
+
+> Prefer to compose it yourself, or just run a single model? llmaker does that
+> too — see the [quickstart](#quickstart). Every piece is also available
+> à la carte via `llmaker service add` and `llmaker up`.
 
 ---
 
