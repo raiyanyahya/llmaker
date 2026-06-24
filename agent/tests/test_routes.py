@@ -1,4 +1,4 @@
-from fakes import FakeEmbedder, FakePipeline, FakeStore
+from fakes import FakeEmbedder, FakeItemStore, FakePipeline, FakeStore
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -10,7 +10,13 @@ def make_client(api_key: str = "") -> TestClient:
     store = FakeStore()
     pipeline = FakePipeline(store, embedder)
     settings = Settings(api_key=api_key)
-    app = create_app(settings, embedder=embedder, store=store, pipeline=pipeline)
+    app = create_app(
+        settings,
+        embedder=embedder,
+        store=store,
+        item_store=FakeItemStore(),
+        pipeline=pipeline,
+    )
     return TestClient(app)
 
 

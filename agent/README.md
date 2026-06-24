@@ -16,7 +16,14 @@ conventional in-network names (`chat`, `qdrant`, `embeddings`) — a stack from
 | `GET`  | `/api/stats` | collection name, chunk count, models |
 | `POST` | `/api/ingest` | ingest a `file` upload or `text` form field → chunk, embed, store |
 | `POST` | `/api/chat` | `{ "question": "...", "top_k": 4, "history": [{role, content}, …] }` → grounded answer + sources |
+| `POST` | `/api/items` | `{ "items": [{id, text, metadata?}, …] }` → embed + store items for recommendations |
+| `POST` | `/api/recommend` | `{ "query": "..." }` or `{ "like": ["id", …] }`, `k` → similar items |
 | `GET`  | `/` | self-contained web UI (ingest + ask) |
+
+Beyond RAG, the same embeddings + vector store power a **recommender**: load
+items once, then get recommendations by free-text intent (`query`) or from a set
+of liked items (`like` — their average becomes a taste profile, and the seeds are
+excluded). No LLM required.
 
 The pipeline is a LangGraph state graph with four nodes:
 

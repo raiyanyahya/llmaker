@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # Vector store.
     qdrant_url: str = "http://qdrant:6333"
     collection: str = "llmaker"
+    items_collection: str = "items"  # separate collection for recommendation items
 
     # Retrieval / chunking.
     top_k: int = 4

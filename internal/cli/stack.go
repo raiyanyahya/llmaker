@@ -78,6 +78,29 @@ services:
 `,
 	},
 	{
+		name:    "recommend",
+		summary: "Recommendation engine: Qdrant + embeddings + agent (no LLM needed)",
+		content: `# Recommendation stack — semantic "more like this" over your items.
+#   make image-agent
+#   llmaker apply -f stack.yaml
+#
+# No LLM instance: recommendations are pure vector similarity. Use the agent's
+# API to load items and get recommendations:
+#   POST /api/items      {"items":[{"id":"sku1","text":"...","metadata":{...}}]}
+#   POST /api/recommend  {"query":"cozy winter jacket","k":5}
+#   POST /api/recommend  {"like":["sku1","sku2"],"k":5}   # taste profile
+version: "1"
+
+services:
+  - use: qdrant               # item vectors           → qdrant:6333
+  - name: embeddings          # embeddings endpoint    → embeddings:80
+    use: embeddings
+    env: { MODEL_ID: BAAI/bge-small-en-v1.5 }
+  - use: agent                # /api/items + /api/recommend → agent:8800
+    env: { EMBEDDINGS_URL: http://embeddings:80 }
+`,
+	},
+	{
 		name:    "faq",
 		summary: "FAQ bot: LLM + Qdrant + embeddings + agent (short-answer tuned)",
 		content: `# FAQ stack — answer questions from a knowledge base, concisely.

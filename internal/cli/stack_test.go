@@ -28,16 +28,15 @@ func TestStackInitWritesValidTemplates(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: load: %v", name, err)
 			}
-			specs, err := f.ToSpecs()
-			if err != nil {
+			if _, err := f.ToSpecs(); err != nil {
 				t.Fatalf("%s: ToSpecs: %v", name, err)
 			}
 			svcs, err := f.ToServiceSpecs()
 			if err != nil {
 				t.Fatalf("%s: ToServiceSpecs: %v", name, err)
 			}
-			if len(specs) == 0 || len(svcs) == 0 {
-				t.Errorf("%s: expected instances and services, got %d/%d", name, len(specs), len(svcs))
+			if len(svcs) == 0 {
+				t.Errorf("%s: expected services, got 0", name)
 			}
 			// Every template includes the agent.
 			hasAgent := false

@@ -250,7 +250,7 @@ curl http://127.0.0.1:11500/v1/chat/completions \
 | `llmaker service catalog` | list the services you can run (vector DBs, cache, embeddings, observability) |
 | `llmaker service add <type> [name]` | create + start a service — `--env`, `--port`, `--memory` |
 | `llmaker service ls` / `rm` / `stop` / `start` | manage running services — `--json` |
-| `llmaker stack init <rag\|chatbot\|faq>` | scaffold a ready-to-apply whole-stack `stack.yaml` |
+| `llmaker stack init <rag\|chatbot\|faq\|recommend>` | scaffold a ready-to-apply whole-stack `stack.yaml` |
 | `llmaker apply -f stack.yaml` | reconcile a declarative stack (LLMs **+** services) — `--prune` |
 | `llmaker doctor` | environment check (Docker, GPU, the macOS caveat) |
 | `llmaker build` | **advanced**: generate a custom image build context |
@@ -354,7 +354,7 @@ DB, an embeddings server, and a built-in [LangGraph](https://langchain-ai.github
 RAG agent that ingests your documents and answers questions grounded in them:
 
 ```bash
-llmaker stack init rag        # writes stack.yaml (rag | chatbot | faq)
+llmaker stack init rag        # writes stack.yaml (rag | chatbot | faq | recommend)
 make image-agent              # build the agent image once
 llmaker apply -f stack.yaml   # chat + qdrant + embeddings + agent, all wired up
 ```
@@ -394,6 +394,23 @@ Langfuse boots with fixed dev keys (`pk-lf-llmaker` / `sk-lf-llmaker`, sign in a
 `admin@llmaker.local` / `llmaker-dev`), so tracing works with zero setup. Tracing
 is opt-in — set `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` on the agent (the
 template does) and it's on; leave them unset and the agent runs exactly as before.
+
+### …or a recommendation engine
+
+The same embeddings + vector store also power a **recommender** — no LLM needed.
+`llmaker stack init recommend` brings up Qdrant + embeddings + the agent; load
+items once, then recommend by intent or by example:
+
+```bash
+A=$(llmaker service ls --json | jq -r '.[]|select(.service=="agent").url')
+curl -s "$A/api/items" -d '{"items":[
+  {"id":"sku1","text":"waterproof hiking boots","metadata":{"cat":"footwear"}},
+  {"id":"sku2","text":"lightweight trail running shoes"}]}'  -H 'content-type: application/json'
+
+curl -s "$A/api/recommend" -d '{"query":"something for a trail run"}' -H 'content-type: application/json'
+curl -s "$A/api/recommend" -d '{"like":["sku1"]}'                  -H 'content-type: application/json'
+# → items ranked by similarity; "like" averages the seeds into a taste profile
+```
 
 ---
 

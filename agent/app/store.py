@@ -89,3 +89,86 @@ class VectorStore:
             return (await self._client.count(self._collection)).count
         except Exception:
             return 0
+
+    # --- recommendation: one vector per item, addressable by caller-chosen id ---
+
+    async def upsert_items(self, items: list[dict]) -> int:
+        """Store items for recommendation: one point per item, keyed by a
+        deterministic id derived from the caller's item id (so the same item id
+        updates in place and can be looked up later). Each item is
+        {id, text, vector, metadata?}."""
+        if not items:
+            return 0
+        await self.ensure(len(items[0]["vector"]))
+        points = [
+            models.PointStruct(
+                id=_point_id(it["id"]),
+                vector=it["vector"],
+                payload={
+                    "item_id": str(it["id"]),
+                    "text": it.get("text", ""),
+                    "metadata": it.get("metadata") or {},
+                },
+            )
+            for it in items
+        ]
+        await self._client.upsert(collection_name=self._collection, points=points)
+        return len(points)
+
+    async def item_vectors(self, item_ids: list[str]) -> list[list[float]]:
+        """Return the stored vectors for the given item ids (missing ids skipped)."""
+        if not item_ids:
+            return []
+        try:
+            recs = await self._client.retrieve(
+                collection_name=self._collection,
+                ids=[_point_id(i) for i in item_ids],
+                with_vectors=True,
+            )
+        except Exception:
+            return []
+        return [r.vector for r in recs if r.vector is not None]
+
+    async def recommend(
+        self, vector: list[float], k: int, exclude_ids: list[str] | None = None
+    ) -> list[dict]:
+        """Return up to k items most similar to a vector, dropping any whose
+        item_id is in exclude_ids (e.g. the seeds in a 'more like this' query)."""
+        exclude = set(exclude_ids or [])
+        try:
+            if not await self._client.collection_exists(self._collection):
+                return []
+            hits = await self._client.query_points(
+                collection_name=self._collection,
+                query=vector,
+                limit=k + len(exclude),
+                with_payload=True,
+            )
+        except Exception:
+            return []
+        out = []
+        for h in hits.points:
+            payload = h.payload or {}
+            item_id = payload.get("item_id", "")
+            if item_id in exclude:
+                continue
+            out.append(
+                {
+                    "id": item_id,
+                    "text": payload.get("text", ""),
+                    "metadata": payload.get("metadata") or {},
+                    "score": h.score,
+                }
+            )
+            if len(out) >= k:
+                break
+        return out
+
+
+_ITEM_NS = uuid.UUID("6f3a1e2c-7b4d-5e6f-8a9b-0c1d2e3f4a5b")
+
+
+def _point_id(item_id) -> str:
+    """Deterministic UUID point id from a caller-supplied item id, so Qdrant
+    (which needs UUID/int ids) can use arbitrary string ids stably."""
+    return str(uuid.uuid5(_ITEM_NS, str(item_id)))

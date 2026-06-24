@@ -57,6 +57,43 @@ class FakeStore:
         pass
 
 
+class FakeItemStore:
+    """In-memory recommendation store: one vector per item id."""
+
+    def __init__(self) -> None:
+        self.items: dict[str, dict] = {}
+
+    async def upsert_items(self, items) -> int:
+        for it in items:
+            self.items[str(it["id"])] = {
+                "vector": it["vector"],
+                "text": it.get("text", ""),
+                "metadata": it.get("metadata") or {},
+            }
+        return len(items)
+
+    async def item_vectors(self, item_ids) -> list[list[float]]:
+        return [self.items[i]["vector"] for i in item_ids if i in self.items]
+
+    async def recommend(self, vector, k, exclude_ids=None) -> list[dict]:
+        def dot(a, b):
+            return sum(x * y for x, y in zip(a, b, strict=False))
+
+        exclude = set(exclude_ids or [])
+        ranked = sorted(
+            ((i, d) for i, d in self.items.items() if i not in exclude),
+            key=lambda kv: dot(kv[1]["vector"], vector),
+            reverse=True,
+        )
+        return [
+            {"id": i, "text": d["text"], "metadata": d["metadata"], "score": 0.9}
+            for i, d in ranked[:k]
+        ]
+
+    async def aclose(self) -> None:
+        pass
+
+
 class FakePipeline:
     """Stands in for the LangGraph pipeline; echoes retrieved context."""
 
