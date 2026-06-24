@@ -1,0 +1,28 @@
+# Go
+/bin/
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Python facade
+facade/.venv/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# Generated build contexts (llmaker build)
+/llmaker-build/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Claude Code machine-local settings (personal permission allowlist)
+.claude/settings.local.json

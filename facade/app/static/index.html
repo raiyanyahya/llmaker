@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>llmaker · instance</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: { brand: { DEFAULT: '#8b5cf6', 600: '#7c3aed' }, accent: '#22d3ee' } } }
+    }
+  </script>
+  <style>
+    body { background: #0b0f17; }
+    .bar { transition: width .4s ease; }
+    [x-cloak] { display: none !important; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</head>
+<body class="text-slate-200 min-h-screen" x-data="ui()" x-init="init()" x-cloak>
+  <div class="max-w-5xl mx-auto px-5 py-6">
+
+    <!-- Header -->
+    <header class="flex items-center justify-between mb-6">
+      <div class="flex items-center gap-3">
+        <div class="text-2xl font-bold tracking-tight"><span class="text-brand">llm</span>aker</div>
+        <span class="text-xs px-2 py-0.5 rounded-full"
+              :class="online ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'">
+          <span x-text="online ? 'online' : 'connecting…'"></span>
+        </span>
+      </div>
+      <div class="text-right text-xs text-slate-400">
+        <div><span x-text="status.instance?.name || '—'"></span> · <span x-text="status.instance?.backend || ''"></span></div>
+        <div>uptime <span x-text="uptime"></span> · v<span x-text="status.instance?.version || '?'"></span></div>
+      </div>
+    </header>
+
+    <!-- Gauges -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <template x-for="g in gauges" :key="g.label">
+        <div class="rounded-xl bg-slate-900/60 border border-slate-800 p-4">
+          <div class="flex justify-between text-xs text-slate-400 mb-2">
+            <span x-text="g.label"></span><span x-text="g.detail"></span>
+          </div>
+          <div class="h-2 rounded-full bg-slate-800 overflow-hidden">
+            <div class="h-2 bar rounded-full" :class="g.color" :style="`width:${g.pct}%`"></div>
+          </div>
+          <div class="mt-1 text-right text-sm font-semibold" x-text="g.pct + '%'"></div>
+        </div>
+      </template>
+    </section>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Models -->
+      <section class="rounded-xl bg-slate-900/60 border border-slate-800 p-4">
+        <h2 class="font-semibold mb-3 flex items-center gap-2">Models</h2>
+
+        <div class="mb-4">
+          <div class="flex gap-2">
+            <input x-model="pullName" @keydown.enter="pull()" placeholder="e.g. llama3:8b"
+                   class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm mono focus:outline-none focus:border-brand" />
+            <button @click="pull()" :disabled="pulling"
+                    class="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand text-white text-sm font-medium disabled:opacity-50">
+              <span x-text="pulling ? 'Pulling…' : 'Pull'"></span>
+            </button>
+          </div>
+          <div x-show="pulling || pullPct > 0" class="mt-2">
+            <div class="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+              <div class="h-1.5 bar rounded-full bg-accent" :style="`width:${pullPct}%`"></div>
+            </div>
+            <div class="text-xs text-slate-400 mt-1" x-text="pullStatus"></div>
+          </div>
+        </div>
+
+        <div class="text-xs uppercase text-slate-500 mb-1">Loaded</div>
+        <template x-if="running.length === 0">
+          <div class="text-sm text-slate-500 mb-3">None loaded (loads on first request)</div>
+        </template>
+        <template x-for="m in running" :key="'r'+m.name">
+          <div class="flex items-center justify-between py-1.5 text-sm">
+            <span class="mono" x-text="m.name"></span>
+            <span class="text-slate-500" x-text="human(m.vram) + ' VRAM'"></span>
+          </div>
+        </template>
+
+        <div class="text-xs uppercase text-slate-500 mt-3 mb-1">Installed</div>
+        <template x-if="installed.length === 0">
+          <div class="text-sm text-slate-500">None — pull one above.</div>
+        </template>
+        <template x-for="m in installed" :key="'i'+m.name">
+          <div class="flex items-center justify-between py-1.5 text-sm border-t border-slate-800/60">
+            <div class="flex items-center gap-2">
+              <button @click="setDefault(m.name)" :title="m.name === defaultModel ? 'default' : 'set default'">
+                <span x-text="m.name === defaultModel ? '★' : '☆'"
+                      :class="m.name === defaultModel ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'"></span>
+              </button>
+              <span class="mono" x-text="m.name"></span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-slate-500" x-text="human(m.size)"></span>
+              <button @click="del(m.name)" class="text-slate-600 hover:text-red-400" title="delete">✕</button>
+            </div>
+          </div>
+        </template>
+      </section>
+
+      <!-- Chat tester -->
+      <section class="rounded-xl bg-slate-900/60 border border-slate-800 p-4 flex flex-col">
+        <h2 class="font-semibold mb-3">Chat tester</h2>
+        <div class="flex-1 min-h-[180px] max-h-72 overflow-y-auto space-y-2 mb-3 text-sm">
+          <template x-for="(m, i) in chat" :key="i">
+            <div :class="m.role === 'user' ? 'text-right' : ''">
+              <span class="inline-block px-3 py-1.5 rounded-lg"
+                    :class="m.role === 'user' ? 'bg-brand-600/30' : 'bg-slate-800'"
+                    x-text="m.content"></span>
+            </div>
+          </template>
+        </div>
+        <div class="flex gap-2">
+          <input x-model="prompt" @keydown.enter="sendChat()" placeholder="Say something…"
+                 class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand" />
+          <button @click="sendChat()" :disabled="sending"
+                  class="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand text-white text-sm font-medium disabled:opacity-50">Send</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- Use from your app -->
+    <section class="rounded-xl bg-slate-900/60 border border-slate-800 p-4 mt-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-semibold">Use from your app</h2>
+        <div class="flex gap-1 text-xs">
+          <template x-for="t in ['curl','python','js']" :key="t">
+            <button @click="snippetTab=t" class="px-2 py-1 rounded"
+                    :class="snippetTab===t ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-slate-200'"
+                    x-text="t"></button>
+          </template>
+        </div>
+      </div>
+      <pre class="bg-slate-950 rounded-lg p-3 text-xs mono overflow-x-auto whitespace-pre-wrap" x-text="snippet"></pre>
+    </section>
+
+    <footer class="mt-6 text-xs text-slate-600 flex items-center gap-3">
+      <input x-model="apiKey" @change="saveKey()" placeholder="API key (if required)"
+             class="bg-slate-950 border border-slate-800 rounded px-2 py-1 mono w-56" />
+      <span>This UI and <span class="mono">llmaker top</span> read the same API.</span>
+    </footer>
+  </div>
+
+  <script>
+    function ui() {
+      return {
+        status: {}, online: false, ws: null,
+        installed: [], running: [], defaultModel: '',
+        pullName: '', pulling: false, pullPct: 0, pullStatus: '',
+        chat: [], prompt: '', sending: false,
+        snippetTab: 'curl', apiKey: '',
+
+        init() {
+          this.apiKey = localStorage.getItem('llmaker_key') || '';
+          this.connect();
+          this.refreshModels();
+        },
+        saveKey() { localStorage.setItem('llmaker_key', this.apiKey); this.connect(); this.refreshModels(); },
+        headers() {
+          const h = { 'Content-Type': 'application/json' };
+          if (this.apiKey) h['Authorization'] = 'Bearer ' + this.apiKey;
+          return h;
+        },
+        keyQuery() { return this.apiKey ? ('?api_key=' + encodeURIComponent(this.apiKey)) : ''; },
+
+        connect() {
+          try { if (this.ws) this.ws.close(); } catch (e) {}
+          const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+          const ws = new WebSocket(`${proto}://${location.host}/ws/status${this.keyQuery()}`);
+          ws.onopen = () => { this.online = true; };
+          ws.onmessage = (ev) => { this.applyStatus(JSON.parse(ev.data)); };
+          ws.onclose = () => { this.online = false; setTimeout(() => this.connect(), 3000); };
+          ws.onerror = () => { ws.close(); };
+          this.ws = ws;
+        },
+        applyStatus(s) {
+          this.status = s;
+          this.running = s.models?.running || [];
+          this.defaultModel = s.models?.default || '';
+          if (s.models?.installed) this.installed = s.models.installed;
+        },
+
+        async refreshModels() {
+          try {
+            const r = await fetch('/api/models', { headers: this.headers() });
+            if (!r.ok) return;
+            const d = await r.json();
+            this.installed = d.models || [];
+            this.defaultModel = d.default || this.defaultModel;
+          } catch (e) {}
+        },
+
+        get gauges() {
+          const sys = this.status.system || {};
+          const g = [
+            { label: 'CPU', pct: Math.round(sys.cpu_percent || 0), detail: '' },
+            { label: 'RAM', pct: Math.round(sys.memory_percent || 0),
+              detail: `${this.human(sys.memory_used)} / ${this.human(sys.memory_total)}` },
+          ];
+          (sys.gpus || []).forEach((gp, i) => g.push({
+            label: 'GPU' + i, pct: Math.round(gp.utilization || 0),
+            detail: `${this.human(gp.memory_used)} / ${this.human(gp.memory_total)}`
+          }));
+          if (!(sys.gpus || []).length) g.push({ label: 'GPU', pct: 0, detail: 'none' });
+          return g.map(x => ({ ...x, color: x.pct >= 90 ? 'bg-red-500' : x.pct >= 70 ? 'bg-amber-400' : 'bg-emerald-400' }));
+        },
+        get uptime() {
+          const s = Math.floor(this.status.instance?.uptime_seconds || 0);
+          if (s < 60) return s + 's';
+          if (s < 3600) return Math.floor(s / 60) + 'm';
+          return Math.floor(s / 3600) + 'h' + (Math.floor(s % 3600 / 60)) + 'm';
+        },
+
+        async pull() {
+          const name = this.pullName.trim();
+          if (!name || this.pulling) return;
+          this.pulling = true; this.pullPct = 0; this.pullStatus = 'starting…';
+          try {
+            const r = await fetch('/api/models/pull', {
+              method: 'POST', headers: this.headers(), body: JSON.stringify({ model: name })
+            });
+            const reader = r.body.getReader();
+            const dec = new TextDecoder();
+            let buf = '';
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buf += dec.decode(value, { stream: true });
+              let nl;
+              while ((nl = buf.indexOf('\n')) >= 0) {
+                const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+                if (!line) continue;
+                const ev = JSON.parse(line);
+                if (ev.error) { this.pullStatus = 'error: ' + ev.error; this.pulling = false; return; }
+                if (ev.total > 0) this.pullPct = Math.round(ev.completed / ev.total * 100);
+                this.pullStatus = ev.status + (ev.total > 0 ? ` ${this.human(ev.completed)}/${this.human(ev.total)}` : '');
+                if (ev.status === 'success') this.pullPct = 100;
+              }
+            }
+            this.pullStatus = 'done'; this.pullName = '';
+            await this.refreshModels();
+          } catch (e) { this.pullStatus = 'error: ' + e; }
+          finally { this.pulling = false; }
+        },
+
+        async setDefault(model) {
+          await fetch('/api/models/default', { method: 'POST', headers: this.headers(), body: JSON.stringify({ model }) });
+          this.defaultModel = model;
+        },
+        async del(model) {
+          if (!confirm('Delete ' + model + '?')) return;
+          await fetch('/api/models/delete', { method: 'POST', headers: this.headers(), body: JSON.stringify({ model }) });
+          await this.refreshModels();
+        },
+
+        async sendChat() {
+          const text = this.prompt.trim();
+          if (!text || this.sending) return;
+          const model = this.defaultModel || (this.installed[0] && this.installed[0].name);
+          if (!model) { alert('No model installed. Pull one first.'); return; }
+          this.chat.push({ role: 'user', content: text });
+          this.prompt = ''; this.sending = true;
+          const idx = this.chat.push({ role: 'assistant', content: '' }) - 1;
+          try {
+            const r = await fetch('/v1/chat/completions', {
+              method: 'POST', headers: this.headers(),
+              body: JSON.stringify({ model, stream: true, messages: this.chat.slice(0, idx).map(m => ({ role: m.role, content: m.content })) })
+            });
+            const reader = r.body.getReader();
+            const dec = new TextDecoder();
+            let buf = '';
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buf += dec.decode(value, { stream: true });
+              let nl;
+              while ((nl = buf.indexOf('\n')) >= 0) {
+                let line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+                if (!line.startsWith('data:')) continue;
+                line = line.slice(5).trim();
+                if (line === '[DONE]') break;
+                try {
+                  const j = JSON.parse(line);
+                  const delta = j.choices?.[0]?.delta?.content || '';
+                  this.chat[idx].content += delta;
+                } catch (e) {}
+              }
+            }
+          } catch (e) { this.chat[idx].content += '\n[error: ' + e + ']'; }
+          finally { this.sending = false; }
+        },
+
+        get snippet() {
+          const base = location.origin;
+          const model = this.defaultModel || 'llama3:8b';
+          const auth = this.apiKey ? ' (with your API key)' : '';
+          if (this.snippetTab === 'curl') {
+            return `curl ${base}/v1/chat/completions \\\n  -H "Content-Type: application/json" \\\n` +
+              (this.apiKey ? `  -H "Authorization: Bearer ${this.apiKey}" \\\n` : '') +
+              `  -d '{"model":"${model}","messages":[{"role":"user","content":"Hello"}]}'`;
+          }
+          if (this.snippetTab === 'python') {
+            return `from openai import OpenAI\nclient = OpenAI(base_url="${base}/v1", api_key="${this.apiKey || 'not-needed'}")\n` +
+              `r = client.chat.completions.create(model="${model}",\n  messages=[{"role":"user","content":"Hello"}])\nprint(r.choices[0].message.content)`;
+          }
+          return `import OpenAI from "openai";\nconst client = new OpenAI({ baseURL: "${base}/v1", apiKey: "${this.apiKey || 'not-needed'}" });\n` +
+            `const r = await client.chat.completions.create({ model: "${model}",\n  messages: [{ role: "user", content: "Hello" }] });\nconsole.log(r.choices[0].message.content);`;
+        },
+
+        human(b) {
+          b = b || 0;
+          if (b < 1000) return b + ' B';
+          const u = ['kB', 'MB', 'GB', 'TB']; let i = -1;
+          do { b /= 1000; i++; } while (b >= 1000 && i < u.length - 1);
+          return b.toFixed(1) + ' ' + u[i];
+        },
+      }
+    }
+  </script>
+</body>
+</html>
