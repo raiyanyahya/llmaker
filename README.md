@@ -375,6 +375,23 @@ The agent is a small FastAPI + LangGraph app (`agent/`): a `retrieve → generat
 graph over any OpenAI-compatible LLM and embeddings endpoint, with Qdrant for
 storage. Swap the model or the vector DB — the graph doesn't change.
 
+**It's observable, too.** The `rag` template also brings up
+[Langfuse](https://langfuse.com) (and a Postgres for it), and the agent traces
+every query to it — so each question shows up at `langfuse:3000` as a `rag-chat`
+trace with its `retrieve` step (hits + scores) and `generate` step (model +
+token usage):
+
+```
+rag-chat  "what does llmaker do?"
+├─ retrieve   qdrant · 4 hits · scores [0.84, 0.71, …]   12ms
+└─ generate   qwen2.5 · 318 tokens                        2.1s
+```
+
+Langfuse boots with fixed dev keys (`pk-lf-llmaker` / `sk-lf-llmaker`, sign in as
+`admin@llmaker.local` / `llmaker-dev`), so tracing works with zero setup. Tracing
+is opt-in — set `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` on the agent (the
+template does) and it's on; leave them unset and the agent runs exactly as before.
+
 ---
 
 ## 📜 Declarative stacks

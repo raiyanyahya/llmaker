@@ -63,3 +63,47 @@ class FakePipeline:
         context = await self._store.search(vec, top_k or 4)
         snippet = context[0]["text"] if context else "no documents"
         return {"answer": f"Based on the docs: {snippet}", "context": context}
+
+
+class _FakeObservation:
+    def __init__(self, kind: str, kwargs: dict, sink: list) -> None:
+        self.kind = kind
+        self.input = kwargs
+        self.ended = None
+        self._sink = sink
+        sink.append(self)
+
+    def end(self, **kwargs) -> None:
+        self.ended = kwargs
+
+
+class FakeTrace:
+    def __init__(self, kwargs: dict) -> None:
+        self.input = kwargs
+        self.observations: list[_FakeObservation] = []
+        self.updated = None
+
+    def span(self, **kwargs) -> _FakeObservation:
+        return _FakeObservation("span", kwargs, self.observations)
+
+    def generation(self, **kwargs) -> _FakeObservation:
+        return _FakeObservation("generation", kwargs, self.observations)
+
+    def update(self, **kwargs) -> None:
+        self.updated = kwargs
+
+
+class FakeLangfuse:
+    """Records the trace/span/generation calls the pipeline makes."""
+
+    def __init__(self) -> None:
+        self.traces: list[FakeTrace] = []
+        self.flushed = 0
+
+    def trace(self, **kwargs) -> FakeTrace:
+        t = FakeTrace(kwargs)
+        self.traces.append(t)
+        return t
+
+    def flush(self) -> None:
+        self.flushed += 1

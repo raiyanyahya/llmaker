@@ -228,7 +228,15 @@ func (f *File) ToServiceSpecs() ([]engine.ServiceSpec, error) {
 		specs = append(specs, spec)
 	}
 
-	sort.Slice(specs, func(i, j int) bool { return specs[i].Name < specs[j].Name })
+	// Order by startup tier (data stores before apps before the agent), then by
+	// name, so apply brings dependencies up first and stays deterministic.
+	sort.Slice(specs, func(i, j int) bool {
+		ti, tj := service.TierOf(specs[i].Category), service.TierOf(specs[j].Category)
+		if ti != tj {
+			return ti < tj
+		}
+		return specs[i].Name < specs[j].Name
+	})
 	return specs, nil
 }
 

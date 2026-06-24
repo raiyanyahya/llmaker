@@ -176,6 +176,35 @@ services:
 	}
 }
 
+func TestServicesOrderedByStartupTier(t *testing.T) {
+	// Declared out of dependency order; ToServiceSpecs must return them so data
+	// stores come first, then apps (langfuse needs pgvector), then the agent.
+	f, err := Parse([]byte(`
+services:
+  - use: agent
+  - use: langfuse
+  - use: pgvector
+  - use: qdrant
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	specs, err := f.ToServiceSpecs()
+	if err != nil {
+		t.Fatalf("ToServiceSpecs: %v", err)
+	}
+	order := make(map[string]int, len(specs))
+	for i, s := range specs {
+		order[s.Service] = i
+	}
+	if !(order["pgvector"] < order["langfuse"]) {
+		t.Errorf("pgvector (%d) must come before langfuse (%d)", order["pgvector"], order["langfuse"])
+	}
+	if !(order["qdrant"] < order["agent"]) || !(order["langfuse"] < order["agent"]) {
+		t.Errorf("agent must come last; order=%v", order)
+	}
+}
+
 func TestEmptyFileYieldsNoSpecs(t *testing.T) {
 	// A stack may declare only services, so an empty instances list is no longer
 	// an error here; apply is what rejects an entirely empty stack.

@@ -44,6 +44,9 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        flush = getattr(app.state.pipeline, "flush", None)
+        if callable(flush):
+            flush()
         for c in owned:
             await c.aclose()
 

@@ -23,11 +23,13 @@ type stackTemplate struct {
 var stackTemplates = []stackTemplate{
 	{
 		name:    "rag",
-		summary: "Doc Q&A: LLM + Qdrant + embeddings + a LangGraph RAG agent",
-		content: `# RAG stack — ground answers in your own documents.
+		summary: "Doc Q&A: LLM + Qdrant + embeddings + RAG agent + Langfuse tracing",
+		content: `# RAG stack — ground answers in your own documents, with tracing.
 #   make image-agent                      # build the agent image once
 #   llmaker apply -f stack.yaml           # bring the whole stack up
 #   open the agent's URL (llmaker service ls) → ingest docs → ask
+#   open Langfuse (langfuse's URL) to see each query traced
+#     sign in: admin@llmaker.local / llmaker-dev
 version: "1"
 
 defaults: { backend: ollama }
@@ -42,8 +44,14 @@ services:
   - name: embeddings          # embeddings endpoint   → embeddings:80
     use: embeddings
     env: { MODEL_ID: BAAI/bge-small-en-v1.5 }
+  - use: pgvector             # Postgres for Langfuse  → pgvector:5432
+  - use: langfuse             # LLM observability      → langfuse:3000
   - use: agent                # LangGraph RAG app      → agent:8800
-    # The agent's defaults already point at chat / qdrant / embeddings.
+    # Defaults already point at chat / qdrant / embeddings; add tracing.
+    env:
+      LANGFUSE_HOST: http://langfuse:3000
+      LANGFUSE_PUBLIC_KEY: pk-lf-llmaker
+      LANGFUSE_SECRET_KEY: sk-lf-llmaker
 `,
 	},
 	{

@@ -18,6 +18,7 @@ dependencies = [
     "openai>=1.30",
     "qdrant-client>=1.9",
     "langgraph>=0.2",
+    "langfuse>=2,<3",
     "pypdf>=4.0",
     "pydantic-settings>=2.0",
 ]

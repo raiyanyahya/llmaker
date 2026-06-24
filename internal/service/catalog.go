@@ -163,8 +163,20 @@ var registry = map[string]Service{
 			"NEXTAUTH_SECRET":   "llmaker-dev-secret-change-me",
 			"SALT":              "llmaker-dev-salt-change-me",
 			"TELEMETRY_ENABLED": "false",
+			// Headless bootstrap: create a project + fixed dev API keys on first
+			// boot so the RAG agent can trace with no manual setup. Rotate these
+			// before exposing Langfuse beyond localhost.
+			"LANGFUSE_INIT_ORG_ID":             "llmaker",
+			"LANGFUSE_INIT_ORG_NAME":           "llmaker",
+			"LANGFUSE_INIT_PROJECT_ID":         "llmaker",
+			"LANGFUSE_INIT_PROJECT_NAME":       "llmaker",
+			"LANGFUSE_INIT_PROJECT_PUBLIC_KEY": "pk-lf-llmaker",
+			"LANGFUSE_INIT_PROJECT_SECRET_KEY": "sk-lf-llmaker",
+			"LANGFUSE_INIT_USER_EMAIL":         "admin@llmaker.local",
+			"LANGFUSE_INIT_USER_NAME":          "llmaker",
+			"LANGFUSE_INIT_USER_PASSWORD":      "llmaker-dev",
 		},
-		Notes: "Needs a Postgres: run `llmaker service add pgvector` first (the default DATABASE_URL points at it over the llmaker network).",
+		Notes: "Needs a Postgres: run `llmaker service add pgvector` first (the default DATABASE_URL points at it over the llmaker network). Boots with fixed dev API keys pk-lf-llmaker / sk-lf-llmaker; sign in as admin@llmaker.local / llmaker-dev.",
 	},
 	"agent": {
 		Kind:        "agent",
@@ -222,6 +234,28 @@ func All() []Service {
 		return out[i].Kind < out[j].Kind
 	})
 	return out
+}
+
+// Tier is the startup ordering for a category: lower tiers come up first. This
+// is a lightweight dependency model — data stores before the apps that use
+// them, and the agent (which talks to everything) last — so `apply` can bring a
+// stack up in an order that works (e.g. pgvector before Langfuse).
+func Tier(c Category) int {
+	switch c {
+	case CategoryVectorDB, CategoryCache:
+		return 0
+	case CategoryEmbeddings, CategoryObservability:
+		return 1
+	case CategoryAgent:
+		return 2
+	default:
+		return 1
+	}
+}
+
+// TierOf returns the startup tier for a category name (as stored on a spec).
+func TierOf(category string) int {
+	return Tier(Category(category))
 }
 
 // Names returns the sorted list of service identifiers.
