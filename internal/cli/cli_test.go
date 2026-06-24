@@ -92,6 +92,61 @@ func TestRunUpDefaultsModelFromBackend(t *testing.T) {
 	}
 }
 
+func TestUpCommandPresetResolves(t *testing.T) {
+	app, rt, fc, _ := testApp(t)
+	want, ok := backend.GetPreset("code")
+	if !ok {
+		t.Fatal("code preset should exist")
+	}
+
+	cmd := newUpCmd(app)
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{"code", "--name", "c", "--timeout", "1s"})
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("up code: %v", err)
+	}
+
+	in, err := rt.Get(context.Background(), "c")
+	if err != nil {
+		t.Fatalf("instance not created: %v", err)
+	}
+	if in.Model != want.Model {
+		t.Errorf("model = %q, want preset model %q", in.Model, want.Model)
+	}
+	if in.Backend != want.Backend {
+		t.Errorf("backend = %q, want %q", in.Backend, want.Backend)
+	}
+	if fc.CallCount("Pull:"+want.Model) != 1 {
+		t.Errorf("expected preset model pull, calls=%v", fc.Calls)
+	}
+}
+
+func TestUpCommandPresetFlagOverride(t *testing.T) {
+	app, rt, _, _ := testApp(t)
+	cmd := newUpCmd(app)
+	cmd.SilenceUsage = true
+	// An explicit --model must win over the preset's model.
+	cmd.SetArgs([]string{"chat", "--name", "c", "--model", "custom:1b", "--timeout", "1s"})
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("up chat --model: %v", err)
+	}
+	in, _ := rt.Get(context.Background(), "c")
+	if in.Model != "custom:1b" {
+		t.Errorf("model = %q, want explicit override custom:1b", in.Model)
+	}
+}
+
+func TestUpCommandUnknownPreset(t *testing.T) {
+	app, _, _, _ := testApp(t)
+	cmd := newUpCmd(app)
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{"bogus"})
+	err := cmd.ExecuteContext(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "unknown preset") {
+		t.Fatalf("expected unknown-preset error, got %v", err)
+	}
+}
+
 func TestRunUpRejectsDuplicateName(t *testing.T) {
 	app, rt, _, _ := testApp(t)
 	seedRunning(rt, "dup")

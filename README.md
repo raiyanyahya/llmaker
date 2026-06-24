@@ -131,13 +131,26 @@ git clone https://github.com/raiyanyahya/llmaker && cd llmaker && make build
 ## 🚀 Quickstart
 
 ```bash
+llmaker up chat                # fastest path: a preset — obvious model, sane defaults, zero flags
 llmaker up                     # interactive wizard with host-derived defaults
-llmaker up --model llama3:8b   # …or go straight to it
+llmaker up --model llama3:8b   # …or go straight to it with explicit flags
 llmaker ls                     # styled fleet table
 llmaker chat brave-llama       # sanity-check it in the terminal
 llmaker open brave-llama       # open the web UI in your browser
 llmaker top                    # live dashboard across the whole fleet
 ```
+
+**Presets** are one-word shortcuts for the obvious cases — pick a model and go, no flags:
+
+```bash
+llmaker up chat      # general chat            → llama3:8b
+llmaker up code      # coding                  → qwen2.5-coder:7b
+llmaker up small     # tiny & fast (CPU/low-RAM) → llama3.2:1b
+llmaker up embed     # embeddings for RAG      → nomic-embed-text
+llmaker up vision    # images + text           → llava:7b
+```
+
+Any flag overrides a preset (and skips the wizard): `llmaker up code --gpu --memory 16g`.
 
 Then use it from **any** OpenAI client — it's just an endpoint:
 
@@ -159,7 +172,7 @@ Switch the whole thing to llama.cpp later? `--backend llamacpp`. Your code doesn
 
 | Command | What it does |
 |---|---|
-| `llmaker up` | create + start an instance (a [Huh](https://github.com/charmbracelet/huh) wizard when run with no flags) |
+| `llmaker up [preset]` | create + start an instance — a preset (`chat`, `code`, `small`, `embed`, `vision`) for an instant zero-flag start, an explicit set of flags, or a [Huh](https://github.com/charmbracelet/huh) wizard when run with neither |
 | `llmaker ls` | styled fleet table — `--json`, `--quiet` |
 | `llmaker top` | live, animated dashboard across the fleet |
 | `llmaker status <name>` | detailed status: gauges, loaded/installed models — `--json` |

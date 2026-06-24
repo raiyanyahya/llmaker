@@ -119,6 +119,7 @@ health/status endpoints, and its own web UI. Pick a backend (Ollama, llama.cpp),
 set resource limits, and manage the whole fleet from your terminal.
 
 Quick start:
+  llmaker up chat            start an instance from a preset (zero flags)
   llmaker up                 start an instance (interactive wizard)
   llmaker ls                 list the fleet
   llmaker top                live dashboard across all instances

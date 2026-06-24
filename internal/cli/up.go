@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,12 +18,38 @@ func newUpCmd(app *App) *cobra.Command {
 	var forceWizard bool
 
 	cmd := &cobra.Command{
-		Use:     "up",
-		Short:   "Create and start an LLM instance",
-		GroupID: groupLifecycle,
-		Args:    cobra.NoArgs,
-		Example: "  llmaker up --backend ollama --model llama3:8b --memory 8g --cpus 4 --gpu\n  llmaker up   # interactive wizard",
+		Use:       "up [preset]",
+		Short:     "Create and start an LLM instance",
+		GroupID:   groupLifecycle,
+		Args:      cobra.MaximumNArgs(1),
+		ValidArgs: backend.PresetNames(),
+		Long: "Create and start an LLM instance.\n\n" +
+			"Pass a preset for an instant, zero-flag start — an obvious model with\n" +
+			"host-derived settings, no wizard:\n\n" +
+			presetHelp() +
+			"\nWith no preset and no flags on a terminal, an interactive wizard runs.\n" +
+			"Any flag below overrides the preset (and skips the wizard).",
+		Example: "  llmaker up chat                      # instant: obvious model + sane defaults\n" +
+			"  llmaker up code --gpu                # a preset, with an override\n" +
+			"  llmaker up --backend ollama --model llama3:8b --memory 8g --cpus 4\n" +
+			"  llmaker up                           # interactive wizard",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				p, ok := backend.GetPreset(args[0])
+				if !ok {
+					return fmt.Errorf("unknown preset %q (available: %s)", args[0], strings.Join(backend.PresetNames(), ", "))
+				}
+				// A preset fills in an obvious backend + model; an explicit flag
+				// always wins. The wizard is skipped (that's the point) unless
+				// the user forced it with --wizard.
+				if !cmd.Flags().Changed("backend") {
+					opts.backendName = string(p.Backend)
+				}
+				if !cmd.Flags().Changed("model") {
+					opts.model = p.Model
+				}
+				return runUp(cmd.Context(), app, opts, forceWizard)
+			}
 			useWizard := forceWizard || (!coreFlagsChanged(cmd) && app.IO.IsInteractive())
 			return runUp(cmd.Context(), app, opts, useWizard)
 		},
@@ -74,6 +101,15 @@ func coreFlagsChanged(cmd *cobra.Command) bool {
 		}
 	}
 	return false
+}
+
+// presetHelp renders the built-in presets as an aligned block for `up --help`.
+func presetHelp() string {
+	var b strings.Builder
+	for _, p := range backend.Presets() {
+		fmt.Fprintf(&b, "  %-7s %-42s %s\n", p.Name, p.Description, p.Model)
+	}
+	return b.String()
 }
 
 func runUp(ctx context.Context, app *App, opts upOptions, useWizard bool) error {
