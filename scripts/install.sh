@@ -5,7 +5,9 @@
 #
 # Downloads the latest release binary for your OS/arch into a bin directory on
 # your PATH. Falls back to `go install` when no prebuilt asset is available.
-set -euo pipefail
+# Note: POSIX sh (dash on Debian/Ubuntu) is the interpreter for `curl … | sh`,
+# and `pipefail` is unsupported there before dash 0.5.12 — so keep to `-eu`.
+set -eu
 
 REPO="${LLMAKER_REPO:-raiyanyahya/llmaker}"
 BIN="llmaker"
