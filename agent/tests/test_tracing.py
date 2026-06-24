@@ -32,14 +32,19 @@ async def test_emits_trace_with_retrieve_and_generate():
     trace = lf.traces[0]
     assert trace.input["name"] == "rag-chat"
 
-    kinds = [o.kind for o in trace.observations]
-    assert "span" in kinds and "generation" in kinds  # retrieve + generate
+    by_name = {o.input.get("name"): o for o in trace.observations}
+    # The graph emitted retrieve + rerank spans and a generate generation.
+    assert {"retrieve", "rerank", "generate"} <= set(by_name)
 
-    retrieve = next(o for o in trace.observations if o.kind == "span")
-    assert retrieve.ended is not None  # span was closed
-    assert retrieve.ended["output"]["hits"] == 1
+    retrieve = by_name["retrieve"]
+    assert retrieve.kind == "span" and retrieve.ended is not None
+    assert retrieve.ended["output"]["fetched"] >= 1
 
-    gen = next(o for o in trace.observations if o.kind == "generation")
+    rerank = by_name["rerank"]
+    assert rerank.ended["output"]["kept"] == 1  # MMR down to top_k=1
+
+    gen = by_name["generate"]
+    assert gen.kind == "generation"
     assert gen.input["model"] == Settings().llm_model
     assert gen.ended is not None
 

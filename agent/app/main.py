@@ -22,9 +22,15 @@ from .store import VectorStore
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+class Message(BaseModel):
+    role: str
+    content: str
+
+
 class ChatRequest(BaseModel):
     question: str
     top_k: int | None = None
+    history: list[Message] | None = None  # prior turns, for multi-turn chat
 
 
 @asynccontextmanager
@@ -109,7 +115,8 @@ def create_app(
     async def chat(req: ChatRequest) -> dict:
         if not req.question.strip():
             raise HTTPException(status_code=400, detail="question is required")
-        result = await app.state.pipeline.answer(req.question, req.top_k)
+        history = [m.model_dump() for m in (req.history or [])]
+        result = await app.state.pipeline.answer(req.question, req.top_k, history=history)
         sources = [
             {"source": c.get("source", ""), "score": c.get("score", 0.0)}
             for c in result.get("context", [])

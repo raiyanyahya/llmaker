@@ -37,12 +37,18 @@ class FakeStore:
             self.docs.append({"vector": vec, "text": text, "source": source})
         return len(texts)
 
-    async def search(self, vector, top_k) -> list[dict]:
+    async def search(self, vector, top_k, with_vectors=False) -> list[dict]:
         def dot(a, b):
             return sum(x * y for x, y in zip(a, b, strict=False))
 
         ranked = sorted(self.docs, key=lambda d: dot(d["vector"], vector), reverse=True)
-        return [{"text": d["text"], "source": d["source"], "score": 0.9} for d in ranked[:top_k]]
+        out = []
+        for d in ranked[:top_k]:
+            item = {"text": d["text"], "source": d["source"], "score": 0.9}
+            if with_vectors:
+                item["vector"] = d["vector"]
+            out.append(item)
+        return out
 
     async def count(self) -> int:
         return len(self.docs)
@@ -58,7 +64,9 @@ class FakePipeline:
         self._store = store
         self._embedder = embedder
 
-    async def answer(self, question: str, top_k: int | None = None) -> dict:
+    async def answer(
+        self, question: str, top_k: int | None = None, history: list | None = None
+    ) -> dict:
         vec = await self._embedder.embed_one(question)
         context = await self._store.search(vec, top_k or 4)
         snippet = context[0]["text"] if context else "no documents"

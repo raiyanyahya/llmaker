@@ -48,8 +48,11 @@ class VectorStore:
         await self._client.upsert(collection_name=self._collection, points=points)
         return len(points)
 
-    async def search(self, vector: list[float], top_k: int) -> list[dict]:
-        """Return the top_k most similar chunks as {text, source, score}.
+    async def search(
+        self, vector: list[float], top_k: int, with_vectors: bool = False
+    ) -> list[dict]:
+        """Return the top_k most similar chunks as {text, source, score} (and the
+        stored ``vector`` when with_vectors, for downstream reranking).
 
         Degrades to an empty result (rather than erroring the whole chat) when
         the vector DB is unreachable or empty — so the agent still answers while
@@ -58,20 +61,25 @@ class VectorStore:
             if not await self._client.collection_exists(self._collection):
                 return []
             hits = await self._client.query_points(
-                collection_name=self._collection, query=vector, limit=top_k, with_payload=True
+                collection_name=self._collection,
+                query=vector,
+                limit=top_k,
+                with_payload=True,
+                with_vectors=with_vectors,
             )
         except Exception:
             return []
         out = []
         for h in hits.points:
             payload = h.payload or {}
-            out.append(
-                {
-                    "text": payload.get("text", ""),
-                    "source": payload.get("source", ""),
-                    "score": h.score,
-                }
-            )
+            item = {
+                "text": payload.get("text", ""),
+                "source": payload.get("source", ""),
+                "score": h.score,
+            }
+            if with_vectors and h.vector is not None:
+                item["vector"] = h.vector
+            out.append(item)
         return out
 
     async def count(self) -> int:

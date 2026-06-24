@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     top_k: int = 4
     chunk_size: int = 1000
     chunk_overlap: int = 150
+    # Reranking: fetch top_k * fetch_multiplier candidates, then MMR down to
+    # top_k. mmr_lambda trades relevance (1.0) for diversity (0.0).
+    fetch_multiplier: int = 3
+    mmr_lambda: float = 0.5
+    rewrite_queries: bool = True  # rewrite follow-ups into standalone queries
 
     # Observability (Langfuse). Tracing turns on only when both keys are set,
     # so the agent runs fine without it. Defaults point at the in-network

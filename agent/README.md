@@ -15,11 +15,21 @@ conventional in-network names (`chat`, `qdrant`, `embeddings`) — a stack from
 | `GET`  | `/health` | liveness (unauthenticated) |
 | `GET`  | `/api/stats` | collection name, chunk count, models |
 | `POST` | `/api/ingest` | ingest a `file` upload or `text` form field → chunk, embed, store |
-| `POST` | `/api/chat` | `{ "question": "...", "top_k": 4 }` → grounded answer + sources |
+| `POST` | `/api/chat` | `{ "question": "...", "top_k": 4, "history": [{role, content}, …] }` → grounded answer + sources |
 | `GET`  | `/` | self-contained web UI (ingest + ask) |
 
-The pipeline is a LangGraph state graph: `retrieve` (embed the question, search
-the vector store) → `generate` (prompt the LLM with the retrieved context).
+The pipeline is a LangGraph state graph with four nodes:
+
+```
+rewrite → retrieve → rerank → generate
+```
+
+- **rewrite** — fold a multi-turn conversation into one standalone search query
+  (only calls the LLM when there's `history` to resolve, so single-shot stays fast).
+- **retrieve** — embed the query and pull a wide candidate set (`top_k × fetch_multiplier`).
+- **rerank** — [MMR](https://en.wikipedia.org/wiki/Maximal_marginal_relevance) down to
+  `top_k`, trading relevance for diversity so the LLM sees broad, non-redundant context.
+- **generate** — answer using the context plus the conversation so far.
 
 ## Configuration (env)
 
@@ -32,7 +42,10 @@ the vector store) → `generate` (prompt the LLM with the retrieved context).
 | `EMBEDDINGS_MODEL` | `BAAI/bge-small-en-v1.5` | embedding model |
 | `QDRANT_URL` | `http://qdrant:6333` | vector database |
 | `COLLECTION` | `llmaker` | Qdrant collection name |
-| `TOP_K` | `4` | chunks retrieved per query |
+| `TOP_K` | `4` | chunks kept per query (after reranking) |
+| `FETCH_MULTIPLIER` | `3` | candidates fetched before MMR (`TOP_K × this`) |
+| `MMR_LAMBDA` | `0.5` | rerank relevance↔diversity trade-off (1.0 = pure relevance) |
+| `REWRITE_QUERIES` | `true` | rewrite multi-turn follow-ups into standalone queries |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `1000` / `150` | ingestion chunking |
 | `PORT` | `8800` | server port |
 | `API_KEY` | — | when set, require `Authorization: Bearer <key>` on `/api/*` |
