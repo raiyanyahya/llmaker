@@ -48,38 +48,45 @@ an orchestration layer, and observability — each containerized, networked, and
 configured to discover the others. Assembling that is a recurring tax: a sprawl of
 `docker run` flags, a brittle Compose file, and hundreds of lines of framework glue.
 
-llmaker removes that tax. It treats the modern LLM stack as a first-class unit —
-choose an application, provision it, and use it:
+llmaker removes that tax. One CLI provisions and operates the whole stack — from
+a single model to a complete application:
 
 ```bash
-# 1 · Choose what to build. Each is a complete, self-hosted stack:
-llmaker stack init rag        #  Document Q&A (RAG) — grounded answers with sources
-#                  chatbot    #  A multi-turn conversational assistant
-#                  faq        #  A knowledge-base / support bot
-#                  recommend  #  A semantic recommendation engine (no LLM required)
+# ── Build a complete application stack ──────────────────────────
+llmaker stack init rag          # choose: rag · chatbot · faq · recommend
+llmaker apply                   # provision the whole stack — model, vector DB,
+                                # embeddings, agent & tracing — all networked
 
-# 2 · Provision it. One command brings up the whole stack — model, vector DB,
-#     embeddings, the retrieval agent, and tracing — networked and ready:
-llmaker apply                 #  reads stack.yaml; --prune reconciles to it
+# ── …or run a single model (OpenAI-compatible) ──────────────────
+llmaker up --model llama3:8b    # a local endpoint — explicit, or a preset:
+llmaker up chat                 #   chat · code · small · embed · vision
+llmaker chat <name>             # test it in the terminal
+llmaker open <name>             # open its built-in web UI
 
-# 3 · Use it. Ingest your data, then query the running stack over HTTP:
-AGENT=$(llmaker service ls --json | jq -r '.[] | select(.service=="agent").url')
+# ── …or compose the stack à la carte, service by service ────────
+llmaker service catalog         # browse what's available
+llmaker service add qdrant      # vector database  → qdrant:6333
+llmaker service add redis       # cache / memory   → redis:6379
+llmaker service add langfuse    # observability    → langfuse:3000
 
-curl "$AGENT/api/ingest" -F file=@employee-handbook.pdf
-curl "$AGENT/api/chat"   -d '{"question": "What is our refund policy?"}'
-# → {"answer":  "Refunds are issued within 30 days of purchase…",
-#    "sources": [{"source": "employee-handbook.pdf", "score": 0.88}]}
+# ── Operate the fleet ───────────────────────────────────────────
+llmaker ls                      # every model + service, one view   (--json)
+llmaker top                     # live resource dashboard (TUI)
+llmaker status <name>           # gauges, loaded models, endpoints
+llmaker logs <name> -f          # stream logs from any container
+llmaker pull mistral --on chat  # download a model with progress
+llmaker stop / start / rm       # lifecycle management
+
+# ── Consume it — the agent's API, or any OpenAI client ──────────
+AGENT=$(llmaker service ls --json | jq -r '.[]|select(.service=="agent").url')
+curl "$AGENT/api/ingest"    -F file=@handbook.pdf            # add knowledge
+curl "$AGENT/api/chat"      -d '{"question":"refund policy?"}'   # grounded answer + sources
+curl "$AGENT/api/recommend" -d '{"like":["sku1","sku2"]}'   # semantic recommendations
 ```
 
-That single `apply` provisions containers that already know how to find each
-other — an LLM, a vector database, an embeddings server, a
-[LangGraph](https://langchain-ai.github.io/langgraph/) retrieval agent, a Postgres,
-and [Langfuse](https://langfuse.com) for tracing — on a private network, with no
-manual configuration. Everything runs on your hardware.
-
-> Prefer to compose it yourself, or just run a single model? llmaker does that
-> too — see the [quickstart](#quickstart). Every piece is also available
-> à la carte via `llmaker service add` and `llmaker up`.
+The result is provisioned on a private network where every container discovers
+the others by name — no Compose file, no glue code, and no data leaving your
+hardware.
 
 ---
 
