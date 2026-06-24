@@ -5,13 +5,13 @@
 coverage.txt
 coverage.html
 
-# Python facade
-facade/.venv/
+# Python (facade + agent)
+**/.venv/
 **/__pycache__/
 *.py[cod]
 *.egg-info/
-.pytest_cache/
-.ruff_cache/
+**/.pytest_cache/
+**/.ruff_cache/
 build/
 dist/
 

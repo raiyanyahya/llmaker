@@ -1,17 +1,20 @@
-# Keep the build context (and image layers) lean — only ./facade source is needed.
+# Keep the build context (and image layers) lean.
 .git
 bin/
 llmaker-build/
 
-# Python facade: virtualenv, caches, build artifacts
+# Python (facade + agent): virtualenvs, caches, build artifacts
 facade/.venv/
+agent/.venv/
 **/__pycache__/
 **/*.py[cod]
 **/*.egg-info/
-facade/.pytest_cache/
-facade/.ruff_cache/
+**/.pytest_cache/
+**/.ruff_cache/
 facade/build/
 facade/dist/
+agent/build/
+agent/dist/
 
 # Go test/coverage artifacts
 *.test

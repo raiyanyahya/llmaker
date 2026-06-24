@@ -250,7 +250,8 @@ curl http://127.0.0.1:11500/v1/chat/completions \
 | `llmaker service catalog` | list the services you can run (vector DBs, cache, embeddings, observability) |
 | `llmaker service add <type> [name]` | create + start a service — `--env`, `--port`, `--memory` |
 | `llmaker service ls` / `rm` / `stop` / `start` | manage running services — `--json` |
-| `llmaker apply -f llm.yaml` | reconcile a declarative stack (LLMs **+** services) — `--prune` |
+| `llmaker stack init <rag\|chatbot\|faq>` | scaffold a ready-to-apply whole-stack `stack.yaml` |
+| `llmaker apply -f stack.yaml` | reconcile a declarative stack (LLMs **+** services) — `--prune` |
 | `llmaker doctor` | environment check (Docker, GPU, the macOS caveat) |
 | `llmaker build` | **advanced**: generate a custom image build context |
 
@@ -328,6 +329,7 @@ llmaker ls                       # instances *and* services, one view
 | **Cache / memory** | Redis (chat memory, sessions, semantic cache) |
 | **Embeddings** | HuggingFace Text-Embeddings-Inference |
 | **Observability** | Langfuse (tracing, prompt analytics, evals) |
+| **Agent** | LangGraph RAG agent — ingest docs, answer grounded questions |
 
 **The point is the wiring.** Every instance and service joins one Docker network
 (`llmaker-net`) and is reachable there by its name — no IPs, no `--link`, no
@@ -342,6 +344,36 @@ docker run --rm --network llmaker-net redis:7-alpine redis-cli -h redis ping
 
 Adding a service is one entry in the catalog (`internal/service/catalog.go`) —
 the CLI, `ls`, `top`, and `apply` pick it up for free.
+
+---
+
+## 🤖 A whole RAG stack in one command
+
+`llmaker stack init` scaffolds a ready-to-apply stack — an LLM **plus** a vector
+DB, an embeddings server, and a built-in [LangGraph](https://langchain-ai.github.io/langgraph/)
+RAG agent that ingests your documents and answers questions grounded in them:
+
+```bash
+llmaker stack init rag        # writes stack.yaml (rag | chatbot | faq)
+make image-agent              # build the agent image once
+llmaker apply -f stack.yaml   # chat + qdrant + embeddings + agent, all wired up
+```
+
+That brings up four containers that already know how to find each other —
+`agent:8800` talks to `chat:8080`, `qdrant:6333`, and `embeddings:80` by name.
+Then ingest and ask (or use the agent's web UI):
+
+```bash
+A=$(llmaker service ls --json | jq -r '.[]|select(.service=="agent").url')
+curl -s "$A/api/ingest" -F text='llmaker runs your whole local LLM stack.'
+curl -s "$A/api/chat" -H 'content-type: application/json' \
+     -d '{"question":"what does llmaker do?"}'
+# → {"answer":"It runs your whole local LLM stack.","sources":[...]}
+```
+
+The agent is a small FastAPI + LangGraph app (`agent/`): a `retrieve → generate`
+graph over any OpenAI-compatible LLM and embeddings endpoint, with Qdrant for
+storage. Swap the model or the vector DB — the graph doesn't change.
 
 ---
 
@@ -434,15 +466,19 @@ make cover          # coverage summary
 
 make facade-setup   # venv + install the Python facade
 make facade-test    # pytest
+make agent-setup    # venv + install the RAG agent
+make agent-test     # pytest
 
-make images             # build the backend images
+make images             # build the backend + agent images
 make image-ollama-cpu   # build the slim CPU image
+make image-agent        # build the RAG agent image
 ```
 
-Both halves are tested: Go command logic runs against an in-memory fake runtime
-(no Docker needed), and the facade's routes + Ollama adapter are covered with
-`pytest` (the adapter via an `httpx` mock transport). CI runs Go race tests +
-`gofmt` + a Python matrix on every push.
+All three parts are tested: Go command logic runs against an in-memory fake runtime
+(no Docker needed), the facade's routes + Ollama adapter are covered with `pytest`
+(the adapter via an `httpx` mock transport), and the RAG agent's routes + LangGraph
+pipeline run against in-memory fakes. CI runs Go race tests + `gofmt` + a Python
+matrix (facade and agent, ruff-linted) + a no-push image build on every push.
 
 ---
 
@@ -462,7 +498,8 @@ internal/
   tui/                  `llmaker top` Bubble Tea dashboard
   cli/                  Cobra commands
 facade/                 Python / FastAPI control-plane + web UI
-images/                 backend Dockerfiles + entrypoints
+agent/                  Python / FastAPI + LangGraph RAG agent
+images/                 backend + agent Dockerfiles + entrypoints
 ```
 
 ---
@@ -521,9 +558,9 @@ the Apple GPU — `doctor` will say so.
 - [x] Live progress, `top` dashboard, the `up` wizard
 - [x] Declarative stacks (`apply --prune`) — LLMs **and** services in one file
 - [x] **Stack services** — vector DBs, cache, embeddings, observability on a shared network
+- [x] **One-command RAG** — `stack init` templates + a LangGraph agent image wired to the stack
 - [x] Slim CPU image variant
-- [ ] `llmaker stack init <template>` — one-command RAG / chatbot / FAQ stacks
-- [ ] A first-class LangGraph agent image, wired to the stack
+- [ ] More agent graphs (rerank, tools, multi-step) + Langfuse tracing baked in
 - [ ] llama.cpp adapter — full model management
 - [ ] `--native` Metal mode on macOS
 - [ ] Multi-arch images → GHCR (`amd64` + `arm64`)

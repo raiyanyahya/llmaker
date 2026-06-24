@@ -24,6 +24,7 @@ const (
 	CategoryCache         Category = "cache"
 	CategoryEmbeddings    Category = "embeddings"
 	CategoryObservability Category = "observability"
+	CategoryAgent         Category = "agent"
 )
 
 // Port is a port a service listens on inside its container.
@@ -165,7 +166,27 @@ var registry = map[string]Service{
 		},
 		Notes: "Needs a Postgres: run `llmaker service add pgvector` first (the default DATABASE_URL points at it over the llmaker network).",
 	},
+	"agent": {
+		Kind:        "agent",
+		DisplayName: "RAG agent (LangGraph)",
+		Category:    CategoryAgent,
+		Image:       imageRepo + "/llmaker-agent:latest",
+		Description: "LangGraph RAG: ingest docs, answer grounded questions. Ties the stack together.",
+		Ports:       []Port{{Container: 8800, Name: "http", Primary: true}},
+		Env: map[string]string{
+			"LLM_BASE_URL":   "http://chat:8080/v1",
+			"LLM_MODEL":      "llama3:8b",
+			"EMBEDDINGS_URL": "http://embeddings:80",
+			"QDRANT_URL":     "http://qdrant:6333",
+			"COLLECTION":     "llmaker",
+		},
+		Notes: "Wires to your LLM + qdrant + embeddings by in-network name. The easy path is `llmaker stack init rag`. Build the image with `make image-agent` (or --image a local tag).",
+	},
 }
+
+// imageRepo is the GHCR namespace for llmaker's own images (the agent). Catalog
+// entries for third-party services use their upstream images directly.
+const imageRepo = "ghcr.io/raiyanyahya"
 
 // Get resolves a service by name, accepting a few friendly aliases.
 func Get(name string) (Service, error) {

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>llmaker RAG agent</title>
+<style>
+  :root { --bg:#0b0d12; --panel:#151922; --border:#252b38; --text:#e5e7eb;
+          --muted:#9ca3af; --accent:#8b5cf6; --accent2:#22d3ee; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         background:var(--bg); color:var(--text); }
+  header { padding:18px 24px; border-bottom:1px solid var(--border); display:flex;
+           align-items:center; gap:10px; }
+  header b { color:var(--accent); font-size:18px; }
+  header span { color:var(--muted); font-size:13px; }
+  main { max-width:820px; margin:0 auto; padding:24px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:12px;
+           padding:16px; margin-bottom:18px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted);
+       margin:0 0 12px; }
+  textarea, input[type=text] { width:100%; background:var(--bg); color:var(--text);
+       border:1px solid var(--border); border-radius:8px; padding:10px; font:inherit; }
+  textarea { min-height:70px; resize:vertical; }
+  .row { display:flex; gap:10px; margin-top:10px; align-items:center; }
+  button { background:var(--accent); color:white; border:0; border-radius:8px;
+       padding:10px 16px; font:inherit; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  button.ghost { background:transparent; border:1px solid var(--border); color:var(--text); }
+  .muted { color:var(--muted); font-size:13px; }
+  #answer { white-space:pre-wrap; margin-top:14px; }
+  .sources { margin-top:10px; font-size:12px; color:var(--muted); }
+  .pill { display:inline-block; background:var(--bg); border:1px solid var(--border);
+       border-radius:999px; padding:2px 9px; margin:2px 4px 0 0; }
+  .ok { color:#22c55e; } .err { color:#ef4444; }
+</style>
+</head>
+<body>
+<header>
+  <b>🦙 llmaker</b><span>RAG agent — ground answers in your documents</span>
+</header>
+<main>
+  <div class="panel">
+    <h2>1 · Add knowledge</h2>
+    <textarea id="text" placeholder="Paste text to ingest…"></textarea>
+    <div class="row">
+      <input type="file" id="file" />
+      <button id="ingestBtn">Ingest</button>
+      <span class="muted" id="ingestStatus"></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>2 · Ask</h2>
+    <input type="text" id="q" placeholder="Ask a question about your documents…" />
+    <div class="row">
+      <button id="askBtn">Ask</button>
+      <span class="muted" id="stats"></span>
+    </div>
+    <div id="answer"></div>
+    <div class="sources" id="sources"></div>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+
+async function refreshStats() {
+  try {
+    const r = await fetch('/api/stats'); const s = await r.json();
+    $('stats').textContent = `${s.chunks} chunks · ${s.llm_model}`;
+  } catch (e) {}
+}
+
+$('ingestBtn').onclick = async () => {
+  const fd = new FormData();
+  const f = $('file').files[0];
+  if (f) fd.append('file', f);
+  else if ($('text').value.trim()) fd.append('text', $('text').value);
+  else { $('ingestStatus').innerHTML = '<span class="err">add text or a file</span>'; return; }
+  $('ingestBtn').disabled = true; $('ingestStatus').textContent = 'ingesting…';
+  try {
+    const r = await fetch('/api/ingest', { method:'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'failed');
+    $('ingestStatus').innerHTML = `<span class="ok">+${d.ingested} chunks from ${d.source}</span>`;
+    $('text').value = ''; $('file').value = ''; refreshStats();
+  } catch (e) { $('ingestStatus').innerHTML = `<span class="err">${e.message}</span>`; }
+  finally { $('ingestBtn').disabled = false; }
+};
+
+$('askBtn').onclick = async () => {
+  const q = $('q').value.trim(); if (!q) return;
+  $('askBtn').disabled = true; $('answer').textContent = 'thinking…'; $('sources').textContent = '';
+  try {
+    const r = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ question: q }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'failed');
+    $('answer').textContent = d.answer;
+    if (d.sources && d.sources.length)
+      $('sources').innerHTML = 'sources: ' + d.sources
+        .map(s => `<span class="pill">${s.source} · ${s.score.toFixed(2)}</span>`).join('');
+  } catch (e) { $('answer').innerHTML = `<span class="err">${e.message}</span>`; }
+  finally { $('askBtn').disabled = false; }
+};
+$('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('askBtn').click(); });
+refreshStats();
+</script>
+</body>
+</html>

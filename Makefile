@@ -77,6 +77,16 @@ facade-test: ## Run the facade test suite
 facade-run: ## Run the facade locally (needs a backend on localhost)
 	cd facade && . .venv/bin/activate && python -m app
 
+## --- Agent (Python / LangGraph) ---
+
+.PHONY: agent-setup
+agent-setup: ## Create a venv and install the RAG agent with dev deps
+	cd agent && python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
+
+.PHONY: agent-test
+agent-test: ## Run the agent test suite
+	cd agent && . .venv/bin/activate && python -m pytest -q
+
 ## --- Images ---
 
 .PHONY: image-ollama
@@ -91,8 +101,12 @@ image-ollama-cpu: ## Build the slim CPU-only Ollama image
 image-llamacpp: ## Build the llama.cpp backend image
 	docker build -f images/llamacpp/Dockerfile -t $(REGISTRY)/llmaker-llamacpp:latest .
 
+.PHONY: image-agent
+image-agent: ## Build the LangGraph RAG agent image
+	docker build -f images/agent/Dockerfile -t $(REGISTRY)/llmaker-agent:latest .
+
 .PHONY: images
-images: image-ollama image-llamacpp ## Build all backend images
+images: image-ollama image-llamacpp image-agent ## Build all backend + agent images
 
 ## --- Meta ---
 
