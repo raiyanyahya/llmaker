@@ -85,3 +85,14 @@ def safe_update(obj: object | None, **kwargs) -> None:
         obj.update(**kwargs)
     except Exception:
         pass
+
+
+def safe_score(trace: object | None, **kwargs) -> None:
+    """Attach a numeric score to a trace (used by the evaluation harness). Like
+    everything here, best-effort: a missing client or SDK quirk never fails a run."""
+    if trace is None:
+        return
+    try:
+        trace.score(**kwargs)
+    except Exception:
+        pass

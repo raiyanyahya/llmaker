@@ -9,7 +9,31 @@ from app.tools import (
     is_read_only_sql,
     knowledge_base_tool,
     safe_eval,
+    web_search_tool,
 )
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
+
+
+class _FakeHTTP:
+    """A stand-in httpx.AsyncClient that records requests and returns a payload."""
+
+    def __init__(self, payload):
+        self._payload = payload
+        self.requests = []
+
+    async def get(self, url, params=None):
+        self.requests.append((url, params))
+        return _FakeResponse(self._payload)
 
 
 def test_safe_eval_arithmetic():
@@ -60,6 +84,32 @@ def test_sql_guard_allows_only_readonly_single_statements():
         assert not is_read_only_sql(bad), bad
 
 
+async def test_web_search_tool_formats_and_caps_results():
+    http = _FakeHTTP(
+        {
+            "results": [
+                {"title": "llmaker", "url": "https://x", "content": "self-host the LLM stack"},
+                {"title": "second", "url": "https://y", "content": "another"},
+            ]
+        }
+    )
+    tool = web_search_tool("http://searxng:8080", client=http, max_results=1)
+
+    out = await tool.run({"query": "llmaker"})
+
+    assert "llmaker" in out and "https://x" in out
+    assert "second" not in out  # capped at max_results=1
+    url, params = http.requests[0]
+    assert url.endswith("/search")
+    assert params == {"q": "llmaker", "format": "json"}
+
+
+async def test_web_search_tool_handles_empty_and_missing_query():
+    tool = web_search_tool("http://searxng:8080/", client=_FakeHTTP({"results": []}))
+    assert await tool.run({"query": "x"}) == "No web results found."
+    assert (await tool.run({"query": " "})).startswith("error")
+
+
 def test_build_tools_includes_sql_only_when_configured():
     embedder, store = FakeEmbedder(), FakeStore()
     names = {t.name for t in build_tools(Settings(), store, embedder)}
@@ -68,6 +118,13 @@ def test_build_tools_includes_sql_only_when_configured():
 
     names_sql = {t.name for t in build_tools(Settings(sql_dsn="postgres://x"), store, embedder)}
     assert "sql" in names_sql
+
+
+def test_build_tools_includes_web_search_only_when_configured():
+    embedder, store = FakeEmbedder(), FakeStore()
+    assert "web_search" not in {t.name for t in build_tools(Settings(), store, embedder)}
+    cfg = Settings(search_url="http://searxng:8080")
+    assert "web_search" in {t.name for t in build_tools(cfg, store, embedder)}
 
 
 def test_tool_schema_is_openai_shape():

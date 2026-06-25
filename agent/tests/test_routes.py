@@ -1,4 +1,11 @@
-from fakes import FakeEmbedder, FakeItemStore, FakePipeline, FakeStore, FakeToolAgent
+from fakes import (
+    FakeEmbedder,
+    FakeEvaluator,
+    FakeItemStore,
+    FakePipeline,
+    FakeStore,
+    FakeToolAgent,
+)
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -17,6 +24,7 @@ def make_client(api_key: str = "") -> TestClient:
         item_store=FakeItemStore(),
         pipeline=pipeline,
         tool_agent=FakeToolAgent(),
+        evaluator=FakeEvaluator(),
     )
     return TestClient(app)
 
@@ -56,6 +64,20 @@ def test_agent_endpoint_returns_answer_and_steps():
 def test_agent_requires_question():
     with make_client() as c:
         assert c.post("/api/agent", json={"question": "  "}).status_code == 400
+
+
+def test_eval_endpoint_scores_cases():
+    with make_client() as c:
+        r = c.post("/api/eval", json={"cases": [{"question": "q1"}, {"question": "q2"}]})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["summary"]["cases"] == 2
+        assert body["results"][0]["scores"]["groundedness"] == 1.0
+
+
+def test_eval_requires_cases():
+    with make_client() as c:
+        assert c.post("/api/eval", json={"cases": []}).status_code == 400
 
 
 def test_ingest_requires_content():

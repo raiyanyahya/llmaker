@@ -55,6 +55,42 @@ services:
 `,
 	},
 	{
+		name:    "research",
+		summary: "Research assistant: LLM + web search (SearXNG) + Qdrant + embeddings + agent",
+		content: `# Research stack — a tool-using assistant that searches the live web AND your
+# own documents, then synthesizes an answer.
+#   make image-agent
+#   llmaker apply -f stack.yaml
+#
+# One-time step: enable JSON results in SearXNG so the agent can read them — in
+# the mounted /etc/searxng/settings.yml set:
+#     search:
+#       formats: [html, json]
+#   then: llmaker stop searxng && llmaker start searxng
+#
+# Ask the tool-using endpoint; the model picks web_search / knowledge_base / etc:
+#   POST /api/agent  {"question": "What shipped in the latest Go release?"}
+version: "1"
+
+defaults: { backend: ollama }
+
+instances:
+  - name: chat                # a tool-capable model    → chat:8080
+    model: qwen2.5:7b         # web_search needs a model that calls tools reliably
+    memory: 8g
+
+services:
+  - use: qdrant               # document store          → qdrant:6333
+  - name: embeddings          # embeddings endpoint     → embeddings:80
+    use: embeddings
+    env: { MODEL_ID: BAAI/bge-small-en-v1.5 }
+  - use: searxng              # self-hosted web search  → searxng:8080
+  - use: agent                # tool-using agent        → agent:8800
+    env:
+      SEARCH_URL: http://searxng:8080   # turns on the web_search tool
+`,
+	},
+	{
 		name:    "chatbot",
 		summary: "Minimal assistant: LLM + agent (chat API + web UI), easy to extend",
 		content: `# Chatbot stack — an LLM with a chat API and web UI.
@@ -148,7 +184,7 @@ func stackTemplateNames() []string {
 func newStackCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "stack",
-		Short:   "Scaffold whole-stack templates (RAG, chatbot, FAQ)",
+		Short:   "Scaffold whole-stack templates (RAG, research, chatbot, FAQ, recommend)",
 		GroupID: groupFleet,
 		Long: "Scaffold a ready-to-apply stack.yaml that wires an LLM together with the\n" +
 			"services around it (vector DB, cache, embeddings, a LangGraph agent), so\n" +

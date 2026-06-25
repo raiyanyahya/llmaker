@@ -23,6 +23,7 @@ const (
 	CategoryVectorDB      Category = "vector-db"
 	CategoryCache         Category = "cache"
 	CategoryEmbeddings    Category = "embeddings"
+	CategorySearch        Category = "search"
 	CategoryObservability Category = "observability"
 	CategoryAgent         Category = "agent"
 )
@@ -150,6 +151,23 @@ var registry = map[string]Service{
 		Env:         map[string]string{"MODEL_ID": "BAAI/bge-small-en-v1.5"},
 		Notes:       "Set MODEL_ID with --env to pick the embedding model.",
 	},
+	"searxng": {
+		Kind:        "searxng",
+		DisplayName: "SearXNG",
+		Category:    CategorySearch,
+		Image:       "searxng/searxng:latest",
+		Description: "Self-hosted metasearch — powers the agent's web_search tool, no paid API.",
+		Ports:       []Port{{Container: 8080, Name: "http", Primary: true}},
+		Volumes:     []Volume{{Suffix: "config", Path: "/etc/searxng"}},
+		Env: map[string]string{
+			"SEARXNG_BASE_URL": "http://searxng:8080/",
+			// Dev default — rotate before exposing beyond localhost.
+			"SEARXNG_SECRET": "llmaker-dev-change-me",
+		},
+		Notes: "Powers the agent's web_search tool: set SEARCH_URL=http://searxng:8080 on the " +
+			"agent (the `research` stack does this). Enable JSON results once — in the mounted " +
+			"/etc/searxng/settings.yml set `search.formats: [html, json]`, then restart searxng.",
+	},
 	"langfuse": {
 		Kind:        "langfuse",
 		DisplayName: "Langfuse",
@@ -210,7 +228,9 @@ func Get(name string) (Service, error) {
 		key = "redis"
 	case "tei", "embed", "embedding":
 		key = "embeddings"
-	case "qdrant", "chroma", "weaviate", "redis", "embeddings", "pgvector", "langfuse":
+	case "searx", "search", "websearch":
+		key = "searxng"
+	case "qdrant", "chroma", "weaviate", "redis", "embeddings", "pgvector", "langfuse", "searxng":
 		// canonical
 	}
 	s, ok := registry[key]
@@ -244,7 +264,7 @@ func Tier(c Category) int {
 	switch c {
 	case CategoryVectorDB, CategoryCache:
 		return 0
-	case CategoryEmbeddings, CategoryObservability:
+	case CategoryEmbeddings, CategorySearch, CategoryObservability:
 		return 1
 	case CategoryAgent:
 		return 2

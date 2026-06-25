@@ -47,6 +47,15 @@ class Settings(BaseSettings):
     # Tool-calling agent.
     agent_max_steps: int = 4  # max tool-call rounds before forcing an answer
     sql_dsn: str = ""  # when set, expose a read-only SQL tool against this database
+    # Web search: when set, expose a web_search tool backed by a SearXNG-compatible
+    # JSON endpoint (the in-network "searxng" service). Empty → no web_search tool,
+    # the same opt-in shape as the SQL tool.
+    search_url: str = ""
+    search_results: int = 5  # results returned per web_search call
+
+    # Evaluation harness (/api/eval). The judge reuses the chat LLM by default;
+    # point eval_model at a stronger model to grade with it instead.
+    eval_model: str = ""
 
     # Server.
     port: int = 8800
@@ -57,6 +66,10 @@ class Settings(BaseSettings):
 
     def tracing_enabled(self) -> bool:
         return bool(self.langfuse_public_key and self.langfuse_secret_key)
+
+    def judge_model(self) -> str:
+        """Model used by the evaluation harness as a judge (defaults to the chat model)."""
+        return self.eval_model or self.llm_model
 
 
 def load_settings() -> Settings:

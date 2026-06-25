@@ -9,6 +9,7 @@ Built-in tools:
   - calculator      safe arithmetic, no code execution
   - current_time    the current UTC time
   - knowledge_base  retrieval over the ingested documents (RAG, as a tool)
+  - web_search      public-web search via self-hosted SearXNG (only if SEARCH_URL set)
   - sql             read-only SQL over a configured database (only if SQL_DSN set)
 """
 
@@ -138,6 +139,58 @@ def knowledge_base_tool(store, embedder, top_k: int) -> Tool:
     )
 
 
+# --- web search (self-hosted via SearXNG; opt-in) ---
+
+
+def web_search_tool(search_url: str, client=None, max_results: int = 5) -> Tool:
+    """A web_search tool backed by a SearXNG-compatible JSON endpoint.
+
+    SearXNG aggregates public search engines and, with the JSON format enabled,
+    returns ``{"results": [{title, url, content}, …]}``. The agent stays fully
+    self-hosted: queries go to the in-network ``searxng`` service, not a paid API.
+    A ``client`` (httpx.AsyncClient) can be injected for tests; otherwise one is
+    created per call so nothing is left open between searches.
+    """
+    base = search_url.rstrip("/")
+
+    async def _query(http, query: str) -> list[dict]:
+        resp = await http.get(f"{base}/search", params={"q": query, "format": "json"})
+        resp.raise_for_status()
+        return resp.json().get("results") or []
+
+    async def _search(args: dict) -> str:
+        query = str(args.get("query", "")).strip()
+        if not query:
+            return "error: query required"
+        if client is not None:
+            results = await _query(client, query)
+        else:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=15.0) as http:
+                results = await _query(http, query)
+        results = results[:max_results]
+        if not results:
+            return "No web results found."
+        return "\n\n".join(
+            f"{r.get('title', '').strip()} — {r.get('url', '').strip()}\n"
+            f"{(r.get('content') or '').strip()}"
+            for r in results
+        )
+
+    return Tool(
+        "web_search",
+        "Search the public web and return the top results (title, URL, snippet). "
+        "Use for current events or facts not in the knowledge base.",
+        {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "the search query"}},
+            "required": ["query"],
+        },
+        _search,
+    )
+
+
 # --- read-only SQL (opt-in) ---
 
 
@@ -182,6 +235,8 @@ def sql_tool(dsn: str, row_limit: int = 50) -> Tool:
 def build_tools(settings, store, embedder) -> list[Tool]:
     """Assemble the tool set for the agent from configuration."""
     tools = [calculator, current_time, knowledge_base_tool(store, embedder, settings.top_k)]
+    if settings.search_url:
+        tools.append(web_search_tool(settings.search_url, max_results=settings.search_results))
     if settings.sql_dsn:
         tools.append(sql_tool(settings.sql_dsn))
     return tools

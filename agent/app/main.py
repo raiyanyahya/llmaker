@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from .agent_graph import ToolAgent
 from .config import Settings, load_settings
 from .embed import Embedder
+from .eval import Evaluator
 from .ingest import chunk_text, extract_text
 from .rag import RagPipeline
 from .recommend import centroid
@@ -58,6 +59,17 @@ class AgentRequest(BaseModel):
     max_steps: int | None = None
 
 
+class EvalCase(BaseModel):
+    question: str
+    reference: str | None = None  # a gold answer, to also score correctness
+    expected_sources: list[str] | None = None  # sources retrieval should surface
+
+
+class EvalRequest(BaseModel):
+    cases: list[EvalCase]
+    top_k: int | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings: Settings = app.state.settings
@@ -78,10 +90,12 @@ async def lifespan(app: FastAPI):
     if getattr(app.state, "tool_agent", None) is None:
         tools = build_tools(settings, app.state.store, app.state.embedder)
         app.state.tool_agent = ToolAgent(settings, tools)
+    if getattr(app.state, "evaluator", None) is None:
+        app.state.evaluator = Evaluator(settings, app.state.pipeline)
     try:
         yield
     finally:
-        for component in (app.state.pipeline, app.state.tool_agent):
+        for component in (app.state.pipeline, app.state.tool_agent, app.state.evaluator):
             flush = getattr(component, "flush", None)
             if callable(flush):
                 flush()
@@ -97,6 +111,7 @@ def create_app(
     item_store=None,
     pipeline=None,
     tool_agent=None,
+    evaluator=None,
 ) -> FastAPI:
     settings = settings or load_settings()
     app = FastAPI(title="llmaker RAG agent", version="0.1.0", lifespan=lifespan)
@@ -106,6 +121,7 @@ def create_app(
     app.state.item_store = item_store
     app.state.pipeline = pipeline
     app.state.tool_agent = tool_agent
+    app.state.evaluator = evaluator
 
     def require_auth(request: Request) -> None:
         key = settings.api_key
@@ -171,6 +187,15 @@ def create_app(
         result = await app.state.tool_agent.run(req.question, history, req.max_steps)
         # steps records each tool call the model made (name, args, result).
         return {"answer": result.get("answer", ""), "steps": result.get("steps", [])}
+
+    @app.post("/api/eval", dependencies=[Depends(require_auth)])
+    async def evaluate(req: EvalRequest) -> dict:
+        if not req.cases:
+            raise HTTPException(status_code=400, detail="provide at least one eval case")
+        cases = [c.model_dump() for c in req.cases]
+        # Per-case scores (groundedness, relevance, optional correctness /
+        # context_recall) plus an aggregate summary.
+        return await app.state.evaluator.evaluate(cases, req.top_k)
 
     @app.post("/api/items", dependencies=[Depends(require_auth)])
     async def add_items(req: ItemsRequest) -> dict:

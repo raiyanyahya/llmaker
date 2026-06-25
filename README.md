@@ -57,7 +57,7 @@ to a complete application:
 
 ```bash
 # ── Build a complete application stack ──────────────────────────
-llmaker stack init rag          # choose: rag · chatbot · faq · recommend
+llmaker stack init rag          # choose: rag · research · chatbot · faq · recommend
 llmaker apply                   # provision the whole stack — model, vector DB,
                                 # embeddings, agent & tracing — all networked
 
@@ -100,8 +100,9 @@ hardware.
 |---|---|
 | **The complete stack, curated** | Models **and** the infrastructure around them — vector databases (Qdrant, Chroma, pgvector, Weaviate), Redis, embeddings, Langfuse — from one versioned catalog. |
 | **Automatic service discovery** | Every model and service joins a private Docker network and resolves by name. Your application reaches `chat:8080` and `qdrant:6333` with zero IP wiring. |
-| **A retrieval agent, built in** | A FastAPI + LangGraph service implementing `rewrite → retrieve → rerank → generate` — multi-turn, MMR reranking — plus a semantic recommendation API. |
+| **A retrieval & tool agent, built in** | A FastAPI + LangGraph service: `rewrite → retrieve → rerank → generate` (multi-turn, MMR), a tool-calling loop (calculator, knowledge base, self-hosted web search, SQL), and a semantic recommendation API. |
 | **Observability by default** | The RAG stack ships Langfuse; every query is traced (retrieval hits and scores, generation model and token usage) with no setup. |
+| **Measurable quality** | An evaluation harness (`/api/eval`) grades answers for groundedness, relevance, and correctness with an LLM judge — retrieval quality you can track across changes, not guess at. |
 | **Declarative, reconcilable** | Define your stack in one file. `llmaker apply` brings it to the desired state in dependency order; `--prune` removes what's no longer declared. |
 | **OpenAI-compatible** | Each model exposes a stable `/v1/*` API (chat, completions, embeddings, streaming). Backend-agnostic — swap Ollama for llama.cpp with a flag, not a rewrite. |
 | **Private by design** | Containers bind to `127.0.0.1` by default. Your documents, embeddings, and traces never leave your infrastructure. No per-token cost, no vendor lock-in. |
@@ -156,7 +157,7 @@ git clone https://github.com/raiyanyahya/llmaker && cd llmaker && make build
 Provision and run a complete retrieval-augmented generation stack:
 
 ```bash
-llmaker stack init rag        # generate stack.yaml (rag | chatbot | faq | recommend)
+llmaker stack init rag        # generate stack.yaml (rag | research | chatbot | faq | recommend)
 make image-agent              # build the agent image once
 llmaker apply -f stack.yaml   # provision the stack — model + services, networked
 llmaker ls                    # inspect models and services in one view
@@ -190,11 +191,12 @@ client.chat.completions.create(model="llama3:8b",
 
 A stack is a model plus the services around it, provisioned together. Each
 template is generated with `llmaker stack init <name>` and applied with
-`llmaker apply`. All four are tested and verified end-to-end against live Docker.
+`llmaker apply`.
 
 | Template | Application | Components |
 |---|---|---|
 | `rag` | Document Q&A — ingest files, query with grounded answers and sources, fully traced | LLM · Qdrant · embeddings · agent · Langfuse · Postgres |
+| `research` | A tool-using assistant that searches the live web *and* your documents, then synthesizes | LLM · SearXNG · Qdrant · embeddings · agent |
 | `chatbot` | A multi-turn assistant with a web UI, extendable into RAG | LLM · agent |
 | `faq` | A knowledge-base assistant tuned for short, grounded answers | LLM · Qdrant · embeddings · agent |
 | `recommend` | A semantic recommendation engine — "more like this", no LLM required | Qdrant · embeddings · agent |
@@ -222,21 +224,30 @@ network, configured by environment to discover the others by name.
 POST /api/ingest      multipart file or text  →  chunk, embed, store
 POST /api/chat        { question, history?, top_k? }  →  answer + sources
 POST /api/agent       { question, history? }  →  tool-using answer + tool calls made
+POST /api/eval        { cases: [{ question, reference? }] }  →  graded answers + summary
 POST /api/items       { items: [{ id, text, metadata? }] }  →  index for recommendation
 POST /api/recommend   { query }  or  { like: [id, …] }  →  ranked items
 ```
 
 **Tool calling.** Beyond retrieval, `/api/agent` runs a tool-calling loop where
 the model decides which tools to invoke — a **calculator**, the **knowledge base**
-(retrieval as a tool), the **current time**, and an optional read-only **SQL**
-tool over your database — and the loop executes them until it has an answer. The
-response includes every tool call it made. Adding a tool is one entry in
+(retrieval as a tool), the **current time**, a self-hosted **web search**
+(SearXNG, no paid API), and an optional read-only **SQL** tool over your
+database — and the loop executes them until it has an answer. The response
+includes every tool call it made. Adding a tool is one entry in
 `agent/app/tools.py`.
 
 **Tracing.** The `rag` stack provisions Langfuse and the agent traces every query
 to it, with zero configuration — each request (RAG or tool-using) appears as a
 trace with its retrieval, tool, and generation steps. Tracing is enabled by the
 template and is otherwise opt-in via two environment variables.
+
+**Evaluation.** `/api/eval` runs a question set through the same pipeline and
+grades each answer — *groundedness* and *relevance* by LLM-as-judge, plus
+*correctness* against a reference and *context recall* against expected sources
+when you supply them. You get per-case scores and an aggregate summary, and every
+case is traced to Langfuse alongside your live traffic — so retrieval quality is
+measurable, not a vibe.
 
 **Recommendations** reuse the same embeddings and vector store, with no model
 involved: index items once, then retrieve by free-text intent (`query`) or by
@@ -256,6 +267,7 @@ llmaker service catalog          # list available services
 llmaker service add qdrant       # vector database     → qdrant:6333
 llmaker service add redis        # cache / memory      → redis:6379
 llmaker service add embeddings   # embeddings (HF TEI) → embeddings:80
+llmaker service add searxng      # web search          → searxng:8080
 llmaker service add langfuse     # observability       → langfuse:3000
 ```
 
@@ -264,6 +276,7 @@ llmaker service add langfuse     # observability       → langfuse:3000
 | Vector databases | Qdrant · Chroma · pgvector (Postgres) · Weaviate |
 | Cache / memory | Redis |
 | Embeddings | HuggingFace Text-Embeddings-Inference |
+| Search | SearXNG (self-hosted metasearch) |
 | Observability | Langfuse |
 | Agent | LangGraph retrieval & recommendation agent |
 
@@ -343,7 +356,7 @@ no local state file to drift out of sync. Model facades and the agent are Python
 
 | Command | Description |
 |---|---|
-| `llmaker stack init <rag\|chatbot\|faq\|recommend>` | Generate a ready-to-apply stack definition |
+| `llmaker stack init <rag\|research\|chatbot\|faq\|recommend>` | Generate a ready-to-apply stack definition |
 | `llmaker apply -f stack.yaml` | Provision / reconcile a declarative stack — `--prune` |
 | `llmaker up [preset]` | Provision a model instance — preset, flags, or interactive wizard |
 | `llmaker service catalog` | List available services |
@@ -448,18 +461,20 @@ images/                 backend and agent Dockerfiles
 
 ## Roadmap
 
-> **Status: alpha.** Every capability below is implemented, tested, and verified
-> end-to-end against live Docker.
+> **Status: alpha.** Checked capabilities are implemented and covered by the test
+> suite; the core stack is verified end-to-end against live Docker.
 
 - [x] Model instances — OpenAI-compatible facade, per-model UI, fleet management
-- [x] Service catalog — vector databases, cache, embeddings, observability
+- [x] Service catalog — vector databases, cache, embeddings, search, observability
 - [x] Private networking — automatic service discovery by name
 - [x] Declarative stacks — `stack init` templates and reconciling `apply --prune`
 - [x] Retrieval agent — LangGraph `rewrite → retrieve → rerank → generate`, multi-turn
 - [x] Recommendation engine — semantic `query` and "more like this"
 - [x] Integrated observability — Langfuse tracing
-- [x] Tool-calling agent — calculator, knowledge base, time, read-only SQL
-- [ ] More agent tooling — dedicated reranking, evaluation harness, web search
+- [x] Tool-calling agent — calculator, knowledge base, time, web search, read-only SQL
+- [x] Self-hosted web search — SearXNG service + a `web_search` agent tool
+- [x] Evaluation harness — `/api/eval` graded by LLM-as-judge, traced to Langfuse
+- [ ] More agent tooling — dedicated cross-encoder reranking; richer eval datasets
 - [ ] Additional backends — llama.cpp model management; Metal on macOS
 - [ ] Distribution — multi-architecture images, package managers, releases
 

@@ -120,6 +120,25 @@ class FakeToolAgent:
         }
 
 
+class FakeEvaluator:
+    """Stands in for the evaluation harness; returns perfect canned scores."""
+
+    async def evaluate(self, cases, top_k=None) -> dict:
+        results = [
+            {
+                "question": c["question"],
+                "answer": "canned",
+                "sources": [],
+                "scores": {"groundedness": 1.0, "relevance": 1.0},
+            }
+            for c in cases
+        ]
+        return {
+            "results": results,
+            "summary": {"cases": len(results), "means": {"groundedness": 1.0, "relevance": 1.0}},
+        }
+
+
 class _FakeObservation:
     def __init__(self, kind: str, kwargs: dict, sink: list) -> None:
         self.kind = kind
@@ -137,6 +156,7 @@ class FakeTrace:
         self.input = kwargs
         self.observations: list[_FakeObservation] = []
         self.updated = None
+        self.scores: list[dict] = []
 
     def span(self, **kwargs) -> _FakeObservation:
         return _FakeObservation("span", kwargs, self.observations)
@@ -146,6 +166,9 @@ class FakeTrace:
 
     def update(self, **kwargs) -> None:
         self.updated = kwargs
+
+    def score(self, **kwargs) -> None:
+        self.scores.append(kwargs)
 
 
 class FakeLangfuse:
