@@ -14,25 +14,26 @@ engines locally. No third-party API keys. No data leaving your machine.
 
 <br/>
 
+<!--
+  DEMO SLOT — docs/demo.svg is a placeholder mock. Replace it with a real
+  terminal recording for maximum impact:
+    • record with vhs (https://github.com/charmbracelet/vhs), or asciinema + agg
+    • good script: `llmaker apply` bringing a stack up, then `llmaker top`
+    • save as docs/demo.gif and change the src below from demo.svg to demo.gif
+-->
+<a href="#quickstart"><img src="docs/demo.svg" alt="llmaker provisioning a full LLM stack from a single command" width="820"/></a>
+
+<br/>
+
 [![CI](https://github.com/raiyanyahya/llmaker/actions/workflows/ci.yml/badge.svg)](https://github.com/raiyanyahya/llmaker/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/raiyanyahya/llmaker)](https://goreportcard.com/report/github.com/raiyanyahya/llmaker)
-[![Self-hosted](https://img.shields.io/badge/100%25-self--hosted-success)](#why-self-host-your-llm-stack)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](#roadmap)
 
 [![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)](go.mod)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](agent/)
 [![Docker](https://img.shields.io/badge/Docker-required-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/get-docker/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](facade/)
 [![LangGraph](https://img.shields.io/badge/agent-LangGraph-1C3C3C)](https://langchain-ai.github.io/langgraph/)
-[![Ollama](https://img.shields.io/badge/backend-Ollama-000000?logo=ollama&logoColor=white)](https://ollama.com)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey?logo=linux&logoColor=white)](#hardware--images)
-
-[![Stars](https://img.shields.io/github/stars/raiyanyahya/llmaker?logo=github&color=yellow)](https://github.com/raiyanyahya/llmaker/stargazers)
-[![Last commit](https://img.shields.io/github/last-commit/raiyanyahya/llmaker?logo=git&logoColor=white)](https://github.com/raiyanyahya/llmaker/commits/master)
-[![Issues](https://img.shields.io/github/issues/raiyanyahya/llmaker?logo=github)](https://github.com/raiyanyahya/llmaker/issues)
-[![Code size](https://img.shields.io/github/languages/code-size/raiyanyahya/llmaker?logo=github)](https://github.com/raiyanyahya/llmaker)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
 [Quickstart](#quickstart) · [Why llmaker](#why-self-host-your-llm-stack) · [Stacks](#stacks) · [The agent](#the-agent) · [Architecture](#architecture) · [CLI](#cli-reference) · [Roadmap](#roadmap)
 
@@ -51,9 +52,8 @@ configured to discover the others. Assembling that is a recurring tax: a sprawl 
 llmaker removes that tax. One CLI provisions the entire stack on a private network
 and **operates it as a single fleet** — live status, logs, and a resource
 dashboard across every model and service. Stacks are **declarative and
-reconcilable** (`apply --prune`), models are **OpenAI-compatible**, retrieval is
-**traced out of the box**, and nothing leaves your hardware. From a single model
-to a complete application:
+reconcilable** (`apply --prune`), models are **OpenAI-compatible**, and retrieval
+is **traced out of the box**. From a single model to a complete application:
 
 ```bash
 # ── Build a complete application stack ──────────────────────────
@@ -88,9 +88,8 @@ curl "$AGENT/api/chat"      -d '{"question":"refund policy?"}'   # grounded answ
 curl "$AGENT/api/recommend" -d '{"like":["sku1","sku2"]}'   # semantic recommendations
 ```
 
-The result is provisioned on a private network where every container discovers
-the others by name — no Compose file, no glue code, and no data leaving your
-hardware.
+Everything lands on a private network where each container discovers the others
+by name — no Compose file and no glue code.
 
 ---
 
@@ -104,7 +103,7 @@ hardware.
 | **Observability by default** | The RAG stack ships Langfuse; every query is traced (retrieval hits and scores, generation model and token usage) with no setup. |
 | **Measurable quality** | An evaluation harness (`/api/eval`) grades answers for groundedness, relevance, and correctness with an LLM judge — retrieval quality you can track across changes, not guess at. |
 | **Declarative, reconcilable** | Define your stack in one file. `llmaker apply` brings it to the desired state in dependency order; `--prune` removes what's no longer declared. |
-| **OpenAI-compatible** | Each model exposes a stable `/v1/*` API (chat, completions, embeddings, streaming). Backend-agnostic — swap Ollama for llama.cpp with a flag, not a rewrite. |
+| **OpenAI-compatible** | Each model exposes a stable `/v1/*` API (chat, completions, embeddings, streaming) behind one contract — Ollama runs it today, with a llama.cpp backend [in progress](#roadmap). |
 | **Private by design** | Containers bind to `127.0.0.1` by default. Your documents, embeddings, and traces never leave your infrastructure. No per-token cost, no vendor lock-in. |
 | **Operable** | A single static Go binary, a labeled-container model with no state file to drift, `--json` output everywhere, and a live `top` dashboard. |
 
@@ -331,7 +330,7 @@ Unset ports are assigned automatically; a stack may be services-only. See
    ════════════════ llmaker-net  (private network, DNS by name) ════════════════
     ┌── Model instance ───────────┐   ┌── Services ───────────────────────────┐
     │ engine ⇄ facade (FastAPI)   │   │ qdrant · embeddings · redis · pgvector │
-    │ Ollama | llama.cpp          │   │ langfuse · …                           │
+    │ Ollama · llama.cpp*         │   │ langfuse · …                           │
     │ OpenAI /v1/* · web UI       │   │ qdrant:6333   embeddings:80            │
     │ chat:8080                   │   └────────────────────────────────────────┘
     └─────────────────────────────┘                  ▲
@@ -343,6 +342,8 @@ Unset ports are assigned automatically; a stack may be services-only. See
                     └───────────────────────────────────┘
               host ports (127.0.0.1:PORT) mapped per container
 ```
+
+<sub>\* The llama.cpp backend is scaffolded but still maturing; Ollama is the verified default — see the [roadmap](#roadmap).</sub>
 
 The control plane is a single Go binary; the data plane is containers on a private
 network. Orchestration logic is decoupled from Docker behind a `Runtime`
