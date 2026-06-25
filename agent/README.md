@@ -139,6 +139,7 @@ itself; it just forwards to the service on the network.
 | `EMBEDDINGS_MODEL` | `BAAI/bge-small-en-v1.5` | embedding model |
 | `QDRANT_URL` | `http://qdrant:6333` | vector database |
 | `COLLECTION` | `llmaker` | Qdrant collection name |
+| `ITEMS_COLLECTION` | `items` | separate Qdrant collection for recommendation items |
 | `TOP_K` | `4` | chunks kept per query (after reranking) |
 | `FETCH_MULTIPLIER` | `3` | candidates fetched before MMR (`TOP_K × this`) |
 | `MMR_LAMBDA` | `0.5` | rerank relevance↔diversity trade-off (1.0 = pure relevance) |
@@ -148,6 +149,8 @@ itself; it just forwards to the service on the network.
 | `SEARCH_URL` | — | when set, expose a web_search tool backed by this SearXNG JSON endpoint |
 | `SEARCH_RESULTS` | `5` | results returned per web_search call |
 | `EVAL_MODEL` | — | judge model for `/api/eval` (defaults to `LLM_MODEL`) |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | — | set both to enable Langfuse tracing |
+| `LANGFUSE_HOST` | `http://langfuse:3000` | Langfuse endpoint |
 | `REDIS_URL` | — | when set, persist per-session chat memory here (e.g. `redis://redis:6379`) |
 | `MEMORY_MAX_TURNS` | `20` | user+assistant pairs kept per session |
 | `MEMORY_TTL_SECONDS` | `604800` | idle-session expiry (7 days) |

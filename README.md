@@ -437,7 +437,7 @@ reserves GPUs via the NVIDIA Container Toolkit.
 |---|---|---|
 | `llmaker-ollama:latest` | ~8.5 GB | GPU-capable (Linux + NVIDIA) |
 | `llmaker-ollama:cpu` | ~360 MB | CPU-only — laptops, CI, macOS |
-| `llmaker-agent:latest` | ~480 MB | LangGraph retrieval & recommendation agent |
+| `llmaker-agent:latest` | ~510 MB | LangGraph agent — RAG, tools, eval, summarize/extract, transcribe |
 
 Images are resolved with a pull-if-missing policy, so locally built images
 (`make image-agent`) are used directly without contacting a registry.
