@@ -48,6 +48,15 @@ def test_safe_eval_rejects_code():
             safe_eval(expr)
 
 
+def test_safe_eval_rejects_huge_power():
+    # A crafted exponent must be rejected, not computed (DoS guard).
+    for expr in ["9**9**9", "2 ** 100000"]:
+        with pytest.raises(ValueError):
+            safe_eval(expr)
+    # Ordinary exponents still work.
+    assert safe_eval("2**10") == 1024
+
+
 async def test_calculator_tool():
     assert await calculator.run({"expression": "6*7"}) == "42"
     # Bad input is reported, never raised.

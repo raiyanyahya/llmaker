@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     # Server.
     port: int = 8800
     api_key: str = ""  # when set, require Authorization: Bearer <key>
+    max_upload_mb: int = 25  # reject larger /api/ingest and /api/transcribe uploads
 
     def embeddings_endpoint(self) -> str:
         return self.embeddings_url.rstrip("/") + "/v1/embeddings"

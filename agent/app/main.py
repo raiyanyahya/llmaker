@@ -31,6 +31,16 @@ from .transcribe import Transcriber
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+async def _read_capped(upload: UploadFile, max_mb: int) -> bytes:
+    """Read an upload, rejecting anything over the limit before it's all in memory.
+    Reading max+1 bytes bounds memory regardless of the client-declared size."""
+    limit = max_mb * 1024 * 1024
+    raw = await upload.read(limit + 1)
+    if len(raw) > limit:
+        raise HTTPException(status_code=413, detail=f"upload exceeds the {max_mb} MB limit")
+    return raw
+
+
 class Message(BaseModel):
     role: str
     content: str
@@ -210,7 +220,7 @@ def create_app(
         source: str | None = Form(default=None),
     ) -> JSONResponse:
         if file is not None:
-            raw = await file.read()
+            raw = await _read_capped(file, settings.max_upload_mb)
             content = extract_text(file.filename or "upload", raw)
             src = source or file.filename or "upload"
         elif text:
@@ -280,7 +290,7 @@ def create_app(
             raise HTTPException(
                 status_code=400, detail="transcription not configured (set WHISPER_URL)"
             )
-        raw = await file.read()
+        raw = await _read_capped(file, settings.max_upload_mb)
         return await app.state.transcriber.transcribe(
             file.filename or "audio", raw, file.content_type
         )

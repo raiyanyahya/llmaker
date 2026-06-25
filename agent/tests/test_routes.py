@@ -143,6 +143,13 @@ def test_ingest_requires_content():
         assert r.status_code == 400
 
 
+def test_ingest_rejects_oversized_upload():
+    with TestClient(create_app(Settings(max_upload_mb=1), **_fakes())) as c:
+        big = b"x" * (2 * 1024 * 1024)  # 2 MB, over the 1 MB cap
+        r = c.post("/api/ingest", files={"file": ("big.txt", big, "text/plain")})
+        assert r.status_code == 413
+
+
 def test_chat_requires_question():
     with make_client() as c:
         r = c.post("/api/chat", json={"question": "  "})

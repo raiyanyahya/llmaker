@@ -23,8 +23,12 @@ def chunk_text(text: str, size: int, overlap: int) -> list[str]:
     text = text.strip()
     if not text:
         return []
+    if size < 1:  # guard against a misconfigured non-positive chunk size
+        size = 1000
     if overlap >= size:
         overlap = size // 4
+    if overlap < 0:
+        overlap = 0
 
     chunks: list[str] = []
     start = 0

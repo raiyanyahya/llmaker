@@ -62,6 +62,10 @@ _BIN_OPS = {
 }
 _UNARY_OPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
 
+# Cap exponents so a crafted expression (e.g. 9**9**9) can't pin the CPU / blow
+# up memory building an astronomically large integer.
+_MAX_POW_EXP = 1000
+
 
 def safe_eval(expression: str) -> float:
     """Evaluate an arithmetic expression over numbers only. Anything else (names,
@@ -71,7 +75,10 @@ def safe_eval(expression: str) -> float:
         if isinstance(node, ast.Constant) and isinstance(node.value, int | float):
             return node.value
         if isinstance(node, ast.BinOp) and type(node.op) in _BIN_OPS:
-            return _BIN_OPS[type(node.op)](_eval(node.left), _eval(node.right))
+            left, right = _eval(node.left), _eval(node.right)
+            if isinstance(node.op, ast.Pow) and abs(right) > _MAX_POW_EXP:
+                raise ValueError("exponent too large")
+            return _BIN_OPS[type(node.op)](left, right)
         if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY_OPS:
             return _UNARY_OPS[type(node.op)](_eval(node.operand))
         raise ValueError("unsupported expression")
@@ -205,16 +212,20 @@ def is_read_only_sql(query: str) -> bool:
     return head.startswith("select ") or head.startswith("with ")
 
 
-def sql_tool(dsn: str, row_limit: int = 50) -> Tool:
+def sql_tool(dsn: str, row_limit: int = 50, timeout: float = 15.0) -> Tool:
     async def _query(args: dict) -> str:
         query = str(args.get("query", "")).strip()
         if not is_read_only_sql(query):
             return "error: only a single read-only SELECT/WITH query is allowed"
         import asyncpg
 
-        conn = await asyncpg.connect(dsn)
+        conn = await asyncpg.connect(dsn, timeout=timeout)
         try:
-            rows = await conn.fetch(query)
+            # Enforce read-only at the server too: a READ ONLY transaction rejects
+            # any write — including DML smuggled into a CTE (WITH … DELETE …),
+            # which the textual guard above can't catch on its own.
+            async with conn.transaction(readonly=True):
+                rows = await conn.fetch(query, timeout=timeout)
         finally:
             await conn.close()
         data = [dict(r) for r in rows[:row_limit]]
