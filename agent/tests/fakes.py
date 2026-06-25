@@ -139,6 +139,64 @@ class FakeEvaluator:
         }
 
 
+class FakeSummarizer:
+    async def summarize(self, text, instructions=None, max_words=None) -> dict:
+        return {"summary": f"summary of {len(text)} chars", "chunks": 1}
+
+
+class FakeExtractor:
+    async def extract(self, text, fields) -> dict:
+        return {"data": {name: f"<{name}>" for name in fields}}
+
+
+class FakeTranscriber:
+    async def transcribe(self, filename, content, content_type=None) -> dict:
+        return {"text": f"transcript of {filename}"}
+
+
+class FakeMemory:
+    """In-memory stand-in for RedisMemory: per-session message lists."""
+
+    def __init__(self) -> None:
+        self.sessions: dict[str, list[dict]] = {}
+
+    async def load(self, session_id) -> list[dict]:
+        return list(self.sessions.get(session_id, []))
+
+    async def append(self, session_id, messages) -> None:
+        self.sessions.setdefault(session_id, []).extend(messages)
+
+    async def clear(self, session_id) -> None:
+        self.sessions.pop(session_id, None)
+
+    async def aclose(self) -> None:
+        pass
+
+
+class _ChatResponse:
+    def __init__(self, content):
+        self.choices = [type("C", (), {"message": type("M", (), {"content": content})()})()]
+
+
+class ScriptedChat:
+    """Fake OpenAI client returning canned assistant contents in order (last repeats).
+
+    Suits the plain-completion callers (summarize, extract, judge): records each
+    call's messages on `.calls` and ignores tools/tool_choice kwargs."""
+
+    def __init__(self, contents):
+        self._contents = contents
+        self.i = 0
+        self.calls = []
+        self.chat = type("X", (), {"completions": self})()
+
+    async def create(self, model, messages, **kwargs):
+        self.calls.append(messages)
+        content = self._contents[min(self.i, len(self._contents) - 1)]
+        self.i += 1
+        return _ChatResponse(content)
+
+
 class _FakeObservation:
     def __init__(self, kind: str, kwargs: dict, sink: list) -> None:
         self.kind = kind

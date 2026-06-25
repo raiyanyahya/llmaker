@@ -57,7 +57,7 @@ is **traced out of the box**. From a single model to a complete application:
 
 ```bash
 # ── Build a complete application stack ──────────────────────────
-llmaker stack init rag          # choose: rag · research · chatbot · faq · recommend
+llmaker stack init rag          # choose: rag · research · code · chatbot · faq · recommend
 llmaker apply                   # provision the whole stack — model, vector DB,
                                 # embeddings, agent & tracing — all networked
 
@@ -102,6 +102,7 @@ by name — no Compose file and no glue code.
 | **A retrieval & tool agent, built in** | A FastAPI + LangGraph service: `rewrite → retrieve → rerank → generate` (multi-turn, MMR), a tool-calling loop (calculator, knowledge base, self-hosted web search, SQL), and a semantic recommendation API. |
 | **Observability by default** | The RAG stack ships Langfuse; every query is traced (retrieval hits and scores, generation model and token usage) with no setup. |
 | **Measurable quality** | An evaluation harness (`/api/eval`) grades answers for groundedness, relevance, and correctness with an LLM judge — retrieval quality you can track across changes, not guess at. |
+| **More than RAG** | First-class endpoints for summarization (map-reduce over long docs), structured JSON extraction, and speech-to-text (Whisper), plus optional Redis-backed conversation memory. |
 | **Declarative, reconcilable** | Define your stack in one file. `llmaker apply` brings it to the desired state in dependency order; `--prune` removes what's no longer declared. |
 | **OpenAI-compatible** | Each model exposes a stable `/v1/*` API (chat, completions, embeddings, streaming) behind one contract — Ollama runs it today, with a llama.cpp backend [in progress](#roadmap). |
 | **Private by design** | Containers bind to `127.0.0.1` by default. Your documents, embeddings, and traces never leave your infrastructure. No per-token cost, no vendor lock-in. |
@@ -156,7 +157,7 @@ git clone https://github.com/raiyanyahya/llmaker && cd llmaker && make build
 Provision and run a complete retrieval-augmented generation stack:
 
 ```bash
-llmaker stack init rag        # generate stack.yaml (rag | research | chatbot | faq | recommend)
+llmaker stack init rag        # generate stack.yaml (rag | research | code | chatbot | faq | recommend)
 make image-agent              # build the agent image once
 llmaker apply -f stack.yaml   # provision the stack — model + services, networked
 llmaker ls                    # inspect models and services in one view
@@ -196,7 +197,8 @@ template is generated with `llmaker stack init <name>` and applied with
 |---|---|---|
 | `rag` | Document Q&A — ingest files, query with grounded answers and sources, fully traced | LLM · Qdrant · embeddings · agent · Langfuse · Postgres |
 | `research` | A tool-using assistant that searches the live web *and* your documents, then synthesizes | LLM · SearXNG · Qdrant · embeddings · agent |
-| `chatbot` | A multi-turn assistant with a web UI, extendable into RAG | LLM · agent |
+| `code` | A code assistant — ingest a repo, ask grounded questions and review | code LLM · Qdrant · embeddings · agent |
+| `chatbot` | A multi-turn assistant with a web UI and per-session memory | LLM · Redis · agent |
 | `faq` | A knowledge-base assistant tuned for short, grounded answers | LLM · Qdrant · embeddings · agent |
 | `recommend` | A semantic recommendation engine — "more like this", no LLM required | Qdrant · embeddings · agent |
 
@@ -221,8 +223,11 @@ network, configured by environment to discover the others by name.
 
 ```
 POST /api/ingest      multipart file or text  →  chunk, embed, store
-POST /api/chat        { question, history?, top_k? }  →  answer + sources
-POST /api/agent       { question, history? }  →  tool-using answer + tool calls made
+POST /api/chat        { question, history?, top_k?, session_id? }  →  answer + sources
+POST /api/agent       { question, history?, session_id? }  →  tool-using answer + tool calls
+POST /api/summarize   { text, instructions?, max_words? }  →  summary (map-reduce for long text)
+POST /api/extract     { text, fields: { name: description } }  →  JSON with exactly those keys
+POST /api/transcribe  multipart audio file  →  { text }   (needs a whisper service)
 POST /api/eval        { cases: [{ question, reference? }] }  →  graded answers + summary
 POST /api/items       { items: [{ id, text, metadata? }] }  →  index for recommendation
 POST /api/recommend   { query }  or  { like: [id, …] }  →  ranked items
@@ -248,6 +253,18 @@ when you supply them. You get per-case scores and an aggregate summary, and ever
 case is traced to Langfuse alongside your live traffic — so retrieval quality is
 measurable, not a vibe.
 
+**Beyond chat.** Two everyday tasks are first-class endpoints: `/api/summarize`
+condenses text (map-reducing long inputs chunk by chunk so a whole report fits),
+and `/api/extract` turns text into a typed JSON object from the fields you name —
+parsed defensively so a chatty model never breaks the contract. With a `whisper`
+service on the network, `/api/transcribe` adds speech-to-text.
+
+**Memory.** The agent is stateless by default (the client passes `history`). Set
+`REDIS_URL` and it persists history server-side: send a `session_id` with
+`/api/chat` or `/api/agent` and prior turns are loaded, prepended, and saved
+automatically — capped and expiring, and best-effort so Redis being down never
+fails a chat. `llmaker stack init chatbot` wires it up.
+
 **Recommendations** reuse the same embeddings and vector store, with no model
 involved: index items once, then retrieve by free-text intent (`query`) or by
 example (`like`, which averages the seed items into a profile and excludes them
@@ -267,15 +284,18 @@ llmaker service add qdrant       # vector database     → qdrant:6333
 llmaker service add redis        # cache / memory      → redis:6379
 llmaker service add embeddings   # embeddings (HF TEI) → embeddings:80
 llmaker service add searxng      # web search          → searxng:8080
+llmaker service add whisper      # speech-to-text      → whisper:8000
+llmaker service add redis        # chat memory         → redis:6379
 llmaker service add langfuse     # observability       → langfuse:3000
 ```
 
 | Category | Services |
 |---|---|
 | Vector databases | Qdrant · Chroma · pgvector (Postgres) · Weaviate |
-| Cache / memory | Redis |
+| Cache / memory | Redis (powers per-session agent memory) |
 | Embeddings | HuggingFace Text-Embeddings-Inference |
 | Search | SearXNG (self-hosted metasearch) |
+| Speech-to-text | Whisper (faster-whisper, OpenAI-compatible) |
 | Observability | Langfuse |
 | Agent | LangGraph retrieval & recommendation agent |
 
@@ -357,7 +377,7 @@ no local state file to drift out of sync. Model facades and the agent are Python
 
 | Command | Description |
 |---|---|
-| `llmaker stack init <rag\|research\|chatbot\|faq\|recommend>` | Generate a ready-to-apply stack definition |
+| `llmaker stack init <rag\|research\|code\|chatbot\|faq\|recommend>` | Generate a ready-to-apply stack definition |
 | `llmaker apply -f stack.yaml` | Provision / reconcile a declarative stack — `--prune` |
 | `llmaker up [preset]` | Provision a model instance — preset, flags, or interactive wizard |
 | `llmaker service catalog` | List available services |
@@ -475,6 +495,9 @@ images/                 backend and agent Dockerfiles
 - [x] Tool-calling agent — calculator, knowledge base, time, web search, read-only SQL
 - [x] Self-hosted web search — SearXNG service + a `web_search` agent tool
 - [x] Evaluation harness — `/api/eval` graded by LLM-as-judge, traced to Langfuse
+- [x] Summarization & extraction — `/api/summarize` (map-reduce), `/api/extract` (typed JSON)
+- [x] Speech-to-text — Whisper service + `/api/transcribe`
+- [x] Conversation memory — Redis-backed per-session history (`session_id`)
 - [ ] More agent tooling — dedicated cross-encoder reranking; richer eval datasets
 - [ ] Additional backends — llama.cpp model management; Metal on macOS
 - [ ] Distribution — multi-architecture images, package managers, releases

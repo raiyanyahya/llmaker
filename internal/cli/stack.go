@@ -91,13 +91,43 @@ services:
 `,
 	},
 	{
-		name:    "chatbot",
-		summary: "Minimal assistant: LLM + agent (chat API + web UI), easy to extend",
-		content: `# Chatbot stack — an LLM with a chat API and web UI.
+		name:    "code",
+		summary: "Code assistant: code LLM + Qdrant + embeddings + agent (Q&A over your repo)",
+		content: `# Code assistant stack — question-answering and review over your own codebase.
 #   make image-agent
 #   llmaker apply -f stack.yaml
 #
-# The agent answers from the model alone here; add a vector DB + embeddings
+# Ingest source files, then ask grounded questions about them:
+#   for f in $(git ls-files '*.go' '*.py'); do curl -F file=@$f $AGENT/api/ingest; done
+#   curl $AGENT/api/chat -d '{"question":"where is auth handled?"}'
+version: "1"
+
+defaults: { backend: ollama }
+
+instances:
+  - name: chat                # a code-tuned model     → chat:8080
+    model: qwen2.5-coder:7b
+    memory: 8g
+
+services:
+  - use: qdrant               # code chunks            → qdrant:6333
+  - name: embeddings          # embeddings endpoint    → embeddings:80
+    use: embeddings
+    env: { MODEL_ID: BAAI/bge-small-en-v1.5 }
+  - use: agent                # retrieval + answering  → agent:8800
+    # Larger chunks keep functions and context intact.
+    env: { CHUNK_SIZE: "1200", CHUNK_OVERLAP: "200" }
+`,
+	},
+	{
+		name:    "chatbot",
+		summary: "Multi-turn assistant with memory: LLM + Redis + agent (chat API + web UI)",
+		content: `# Chatbot stack — an LLM with a chat API, web UI, and per-session memory.
+#   make image-agent
+#   llmaker apply -f stack.yaml
+#
+# Send a "session_id" with each /api/chat request and the agent remembers the
+# conversation (kept in Redis). Add a vector DB + embeddings
 # (` + "`llmaker service add qdrant && llmaker service add embeddings`" + `) and the
 # agent automatically grounds answers in any docs you ingest.
 version: "1"
@@ -110,7 +140,10 @@ instances:
     memory: 8g
 
 services:
+  - use: redis                # conversation memory    → redis:6379
   - use: agent                # chat API + web UI      → agent:8800
+    env:
+      REDIS_URL: redis://redis:6379   # persist per-session history (send session_id)
 `,
 	},
 	{
@@ -184,7 +217,7 @@ func stackTemplateNames() []string {
 func newStackCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "stack",
-		Short:   "Scaffold whole-stack templates (RAG, research, chatbot, FAQ, recommend)",
+		Short:   "Scaffold whole-stack templates (RAG, research, code, chatbot, FAQ, recommend)",
 		GroupID: groupFleet,
 		Long: "Scaffold a ready-to-apply stack.yaml that wires an LLM together with the\n" +
 			"services around it (vector DB, cache, embeddings, a LangGraph agent), so\n" +

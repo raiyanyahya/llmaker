@@ -17,11 +17,15 @@ from .agent_graph import ToolAgent
 from .config import Settings, load_settings
 from .embed import Embedder
 from .eval import Evaluator
+from .extract import Extractor
 from .ingest import chunk_text, extract_text
+from .memory import build_memory
 from .rag import RagPipeline
 from .recommend import centroid
 from .store import VectorStore
+from .summarize import Summarizer
 from .tools import build_tools
+from .transcribe import Transcriber
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -35,6 +39,7 @@ class ChatRequest(BaseModel):
     question: str
     top_k: int | None = None
     history: list[Message] | None = None  # prior turns, for multi-turn chat
+    session_id: str | None = None  # when set + memory enabled, persist/resume history
 
 
 class Item(BaseModel):
@@ -57,6 +62,18 @@ class AgentRequest(BaseModel):
     question: str
     history: list[Message] | None = None
     max_steps: int | None = None
+    session_id: str | None = None
+
+
+class SummarizeRequest(BaseModel):
+    text: str
+    instructions: str | None = None  # e.g. "as 3 bullet points" / "for an executive"
+    max_words: int | None = None
+
+
+class ExtractRequest(BaseModel):
+    text: str
+    fields: dict[str, str]  # field name → what to pull out
 
 
 class EvalCase(BaseModel):
@@ -92,10 +109,25 @@ async def lifespan(app: FastAPI):
         app.state.tool_agent = ToolAgent(settings, tools)
     if getattr(app.state, "evaluator", None) is None:
         app.state.evaluator = Evaluator(settings, app.state.pipeline)
+    if getattr(app.state, "summarizer", None) is None:
+        app.state.summarizer = Summarizer(settings)
+    if getattr(app.state, "extractor", None) is None:
+        app.state.extractor = Extractor(settings)
+    if getattr(app.state, "transcriber", None) is None and settings.whisper_url:
+        app.state.transcriber = Transcriber(settings)
+    if getattr(app.state, "memory", None) is None and settings.redis_url:
+        app.state.memory = build_memory(settings)
+        owned.append(app.state.memory)
     try:
         yield
     finally:
-        for component in (app.state.pipeline, app.state.tool_agent, app.state.evaluator):
+        for component in (
+            app.state.pipeline,
+            app.state.tool_agent,
+            app.state.evaluator,
+            app.state.summarizer,
+            app.state.extractor,
+        ):
             flush = getattr(component, "flush", None)
             if callable(flush):
                 flush()
@@ -112,6 +144,10 @@ def create_app(
     pipeline=None,
     tool_agent=None,
     evaluator=None,
+    summarizer=None,
+    extractor=None,
+    transcriber=None,
+    memory=None,
 ) -> FastAPI:
     settings = settings or load_settings()
     app = FastAPI(title="llmaker RAG agent", version="0.1.0", lifespan=lifespan)
@@ -122,6 +158,10 @@ def create_app(
     app.state.pipeline = pipeline
     app.state.tool_agent = tool_agent
     app.state.evaluator = evaluator
+    app.state.summarizer = summarizer
+    app.state.extractor = extractor
+    app.state.transcriber = transcriber
+    app.state.memory = memory
 
     def require_auth(request: Request) -> None:
         key = settings.api_key
@@ -130,6 +170,23 @@ def create_app(
         header = request.headers.get("authorization", "")
         if header != f"Bearer {key}":
             raise HTTPException(status_code=401, detail="missing or invalid bearer token")
+
+    async def resume(session_id: str | None, history) -> list[dict]:
+        """Prepend any stored history for this session to the request's history."""
+        msgs = [m.model_dump() for m in (history or [])]
+        mem = app.state.memory
+        if mem and session_id:
+            return await mem.load(session_id) + msgs
+        return msgs
+
+    async def remember(session_id: str | None, question: str, answer: str) -> None:
+        """Persist the latest turn (no-op unless memory is enabled and a session given)."""
+        mem = app.state.memory
+        if mem and session_id:
+            await mem.append(
+                session_id,
+                [{"role": "user", "content": question}, {"role": "assistant", "content": answer}],
+            )
 
     @app.get("/health")
     async def health() -> dict:
@@ -171,22 +228,26 @@ def create_app(
     async def chat(req: ChatRequest) -> dict:
         if not req.question.strip():
             raise HTTPException(status_code=400, detail="question is required")
-        history = [m.model_dump() for m in (req.history or [])]
+        history = await resume(req.session_id, req.history)
         result = await app.state.pipeline.answer(req.question, req.top_k, history=history)
+        answer = result.get("answer", "")
+        await remember(req.session_id, req.question, answer)
         sources = [
             {"source": c.get("source", ""), "score": c.get("score", 0.0)}
             for c in result.get("context", [])
         ]
-        return {"answer": result.get("answer", ""), "sources": sources}
+        return {"answer": answer, "sources": sources}
 
     @app.post("/api/agent", dependencies=[Depends(require_auth)])
     async def agent(req: AgentRequest) -> dict:
         if not req.question.strip():
             raise HTTPException(status_code=400, detail="question is required")
-        history = [m.model_dump() for m in (req.history or [])]
+        history = await resume(req.session_id, req.history)
         result = await app.state.tool_agent.run(req.question, history, req.max_steps)
+        answer = result.get("answer", "")
+        await remember(req.session_id, req.question, answer)
         # steps records each tool call the model made (name, args, result).
-        return {"answer": result.get("answer", ""), "steps": result.get("steps", [])}
+        return {"answer": answer, "steps": result.get("steps", [])}
 
     @app.post("/api/eval", dependencies=[Depends(require_auth)])
     async def evaluate(req: EvalRequest) -> dict:
@@ -196,6 +257,31 @@ def create_app(
         # Per-case scores (groundedness, relevance, optional correctness /
         # context_recall) plus an aggregate summary.
         return await app.state.evaluator.evaluate(cases, req.top_k)
+
+    @app.post("/api/summarize", dependencies=[Depends(require_auth)])
+    async def summarize(req: SummarizeRequest) -> dict:
+        if not req.text.strip():
+            raise HTTPException(status_code=400, detail="text is required")
+        return await app.state.summarizer.summarize(req.text, req.instructions, req.max_words)
+
+    @app.post("/api/extract", dependencies=[Depends(require_auth)])
+    async def extract(req: ExtractRequest) -> dict:
+        if not req.text.strip():
+            raise HTTPException(status_code=400, detail="text is required")
+        if not req.fields:
+            raise HTTPException(status_code=400, detail="provide at least one field to extract")
+        return await app.state.extractor.extract(req.text, req.fields)
+
+    @app.post("/api/transcribe", dependencies=[Depends(require_auth)])
+    async def transcribe(file: UploadFile = File(...)) -> dict:
+        if app.state.transcriber is None:
+            raise HTTPException(
+                status_code=400, detail="transcription not configured (set WHISPER_URL)"
+            )
+        raw = await file.read()
+        return await app.state.transcriber.transcribe(
+            file.filename or "audio", raw, file.content_type
+        )
 
     @app.post("/api/items", dependencies=[Depends(require_auth)])
     async def add_items(req: ItemsRequest) -> dict:

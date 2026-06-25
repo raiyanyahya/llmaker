@@ -15,8 +15,11 @@ conventional in-network names (`chat`, `qdrant`, `embeddings`) — a stack from
 | `GET`  | `/health` | liveness (unauthenticated) |
 | `GET`  | `/api/stats` | collection name, chunk count, models |
 | `POST` | `/api/ingest` | ingest a `file` upload or `text` form field → chunk, embed, store |
-| `POST` | `/api/chat` | `{ "question": "...", "top_k": 4, "history": [{role, content}, …] }` → grounded answer + sources |
-| `POST` | `/api/agent` | `{ "question": "...", "history": [...], "max_steps": 4 }` → tool-using answer + the tool calls it made |
+| `POST` | `/api/chat` | `{ "question": "...", "top_k": 4, "history": [...], "session_id"? }` → grounded answer + sources |
+| `POST` | `/api/agent` | `{ "question": "...", "history": [...], "max_steps": 4, "session_id"? }` → tool-using answer + the tool calls it made |
+| `POST` | `/api/summarize` | `{ "text": "...", "instructions"?, "max_words"? }` → summary (map-reduce for long text) |
+| `POST` | `/api/extract` | `{ "text": "...", "fields": {name: description, …} }` → JSON object with exactly those keys |
+| `POST` | `/api/transcribe` | multipart `file` (audio) → `{ "text": "..." }` (needs `WHISPER_URL`) |
 | `POST` | `/api/eval` | `{ "cases": [{question, reference?, expected_sources?}, …], "top_k"? }` → per-case scores + summary |
 | `POST` | `/api/items` | `{ "items": [{id, text, metadata?}, …] }` → embed + store items for recommendations |
 | `POST` | `/api/recommend` | `{ "query": "..." }` or `{ "like": ["id", …] }`, `k` → similar items |
@@ -96,6 +99,35 @@ The judge is the chat model by default (set `EVAL_MODEL` to grade with a stronge
 one). When tracing is configured, every case is also sent to Langfuse with its
 scores attached — so your eval set lands right next to your live traces.
 
+## Summarize & extract
+
+Two everyday LLM tasks as first-class endpoints:
+
+- **`/api/summarize`** condenses text. Long inputs are **map-reduced** —
+  chunked, each chunk summarized, then the partials summarized together — so a
+  whole report or transcript fits. Steer it with `instructions` (e.g. *"as three
+  bullet points"*) and cap length with `max_words`. Returns `{summary, chunks}`.
+- **`/api/extract`** turns text into a typed JSON object. Name the `fields` you
+  want (each with a short description) and get back exactly those keys, with
+  `null` where a value is absent. The reply is parsed defensively, so a chatty
+  model never breaks the contract. Returns `{data: {…}}`.
+
+## Conversation memory
+
+By default the agent is stateless — clients pass `history` on each request. Set
+`REDIS_URL` and the agent persists history **server-side**: send a `session_id`
+with `/api/chat` or `/api/agent` and prior turns are loaded and prepended
+automatically, then the new turn is saved. History is capped (`MEMORY_MAX_TURNS`)
+and expires (`MEMORY_TTL_SECONDS`). Redis calls are best-effort — if Redis is
+down the agent still answers. `llmaker stack init chatbot` wires this up.
+
+## Transcription (`/api/transcribe`)
+
+When `WHISPER_URL` is set, `/api/transcribe` accepts an audio upload and proxies
+it to a self-hosted, OpenAI-compatible Whisper endpoint (the `whisper` service —
+`llmaker service add whisper`), returning `{text}`. The agent runs no audio model
+itself; it just forwards to the service on the network.
+
 ## Configuration (env)
 
 | Var | Default | Purpose |
@@ -116,6 +148,12 @@ scores attached — so your eval set lands right next to your live traces.
 | `SEARCH_URL` | — | when set, expose a web_search tool backed by this SearXNG JSON endpoint |
 | `SEARCH_RESULTS` | `5` | results returned per web_search call |
 | `EVAL_MODEL` | — | judge model for `/api/eval` (defaults to `LLM_MODEL`) |
+| `REDIS_URL` | — | when set, persist per-session chat memory here (e.g. `redis://redis:6379`) |
+| `MEMORY_MAX_TURNS` | `20` | user+assistant pairs kept per session |
+| `MEMORY_TTL_SECONDS` | `604800` | idle-session expiry (7 days) |
+| `SUMMARIZE_CHUNK_SIZE` | `3000` | map-reduce chunk size for `/api/summarize` |
+| `WHISPER_URL` | — | when set, enable `/api/transcribe` against this Whisper endpoint |
+| `WHISPER_MODEL` | `Systran/faster-whisper-small` | transcription model |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `1000` / `150` | ingestion chunking |
 | `PORT` | `8800` | server port |
 | `API_KEY` | — | when set, require `Authorization: Bearer <key>` on `/api/*` |

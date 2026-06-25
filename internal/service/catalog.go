@@ -24,6 +24,7 @@ const (
 	CategoryCache         Category = "cache"
 	CategoryEmbeddings    Category = "embeddings"
 	CategorySearch        Category = "search"
+	CategorySpeech        Category = "speech"
 	CategoryObservability Category = "observability"
 	CategoryAgent         Category = "agent"
 )
@@ -136,9 +137,10 @@ var registry = map[string]Service{
 		DisplayName: "Redis",
 		Category:    CategoryCache,
 		Image:       "redis:7-alpine",
-		Description: "In-memory store for chat memory, sessions, and semantic cache.",
+		Description: "In-memory store — powers the agent's per-session conversation memory.",
 		Ports:       []Port{{Container: 6379, Name: "redis", Primary: true}},
 		Volumes:     []Volume{{Suffix: "data", Path: "/data"}},
+		Notes:       "Set REDIS_URL=redis://redis:6379 on the agent to persist per-session chat history (send a session_id). The `chatbot` stack wires this automatically.",
 	},
 	"embeddings": {
 		Kind:        "embeddings",
@@ -167,6 +169,17 @@ var registry = map[string]Service{
 		Notes: "Powers the agent's web_search tool: set SEARCH_URL=http://searxng:8080 on the " +
 			"agent (the `research` stack does this). Enable JSON results once — in the mounted " +
 			"/etc/searxng/settings.yml set `search.formats: [html, json]`, then restart searxng.",
+	},
+	"whisper": {
+		Kind:        "whisper",
+		DisplayName: "Whisper (faster-whisper)",
+		Category:    CategorySpeech,
+		Image:       "fedirz/faster-whisper-server:latest-cpu",
+		Description: "Speech-to-text — self-hosted, OpenAI-compatible /v1/audio/transcriptions.",
+		Ports:       []Port{{Container: 8000, Name: "http", Primary: true}},
+		Volumes:     []Volume{{Suffix: "cache", Path: "/root/.cache/huggingface"}},
+		Notes: "Point WHISPER_URL=http://whisper:8000 at the agent to enable /api/transcribe, or " +
+			"call /v1/audio/transcriptions directly. For NVIDIA GPUs use the `latest-cuda` tag with --gpu.",
 	},
 	"langfuse": {
 		Kind:        "langfuse",
@@ -230,7 +243,9 @@ func Get(name string) (Service, error) {
 		key = "embeddings"
 	case "searx", "search", "websearch":
 		key = "searxng"
-	case "qdrant", "chroma", "weaviate", "redis", "embeddings", "pgvector", "langfuse", "searxng":
+	case "stt", "asr", "speech-to-text", "transcribe":
+		key = "whisper"
+	case "qdrant", "chroma", "weaviate", "redis", "embeddings", "pgvector", "langfuse", "searxng", "whisper":
 		// canonical
 	}
 	s, ok := registry[key]
@@ -264,7 +279,7 @@ func Tier(c Category) int {
 	switch c {
 	case CategoryVectorDB, CategoryCache:
 		return 0
-	case CategoryEmbeddings, CategorySearch, CategoryObservability:
+	case CategoryEmbeddings, CategorySearch, CategorySpeech, CategoryObservability:
 		return 1
 	case CategoryAgent:
 		return 2

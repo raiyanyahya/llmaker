@@ -57,6 +57,21 @@ class Settings(BaseSettings):
     # point eval_model at a stronger model to grade with it instead.
     eval_model: str = ""
 
+    # Conversation memory. When REDIS_URL is set, /api/chat and /api/agent persist
+    # per-session history in Redis (pass "session_id"); otherwise history is only
+    # what the client sends on each request.
+    redis_url: str = ""  # e.g. redis://redis:6379
+    memory_max_turns: int = 20  # cap stored user+assistant pairs per session
+    memory_ttl_seconds: int = 604800  # expire idle sessions after 7 days
+
+    # Summarization (/api/summarize). Long inputs are map-reduced in chunks.
+    summarize_chunk_size: int = 3000
+
+    # Speech-to-text (/api/transcribe). When WHISPER_URL is set, uploaded audio is
+    # proxied to this OpenAI-compatible endpoint (the in-network whisper service).
+    whisper_url: str = ""
+    whisper_model: str = "Systran/faster-whisper-small"
+
     # Server.
     port: int = 8800
     api_key: str = ""  # when set, require Authorization: Bearer <key>
