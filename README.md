@@ -298,7 +298,7 @@ llmaker service add redis        # cache / memory      → redis:6379
 llmaker service add embeddings   # embeddings (HF TEI) → embeddings:80
 llmaker service add searxng      # web search          → searxng:8080
 llmaker service add whisper      # speech-to-text      → whisper:8000
-llmaker service add redis        # chat memory         → redis:6379
+llmaker service add open-webui   # ChatGPT-style UI    → open-webui:8080
 llmaker service add langfuse     # observability       → langfuse:3000
 ```
 
@@ -310,6 +310,7 @@ llmaker service add langfuse     # observability       → langfuse:3000
 | Search | SearXNG (self-hosted metasearch) |
 | Speech-to-text | Whisper (faster-whisper, OpenAI-compatible) |
 | Observability | Langfuse |
+| Web UI & apps | Open WebUI (ChatGPT-style UI) · n8n (workflow automation) · Flowise (visual LLM app builder) |
 | Agent | LangGraph retrieval & recommendation agent |
 
 Every model and service joins a private Docker network (`llmaker-net`) and is
@@ -397,7 +398,7 @@ no local state file to drift out of sync. Model facades and the agent are Python
 | `llmaker stack init <template>` | Generate a ready-to-apply stack definition to edit |
 | `llmaker apply -f stack.yaml` | Provision / reconcile a declarative stack — `--prune` |
 | `llmaker up [preset]` | Provision a model instance — preset, flags, or interactive wizard |
-| `llmaker stop \| start \| restart \| rm <name>...` | Instance lifecycle — `restart` stops then starts |
+| `llmaker stop \| start \| restart \| rm <name>...` | Instance lifecycle — `restart` = stop+start, `rm --force` removes a running one |
 | `llmaker service catalog` | List available services |
 | `llmaker service add <type> [name]` | Provision a service — `--env`, `--port`, `--memory` |
 | `llmaker service ls \| rm \| stop \| start \| restart` | Manage services — `--json` |
@@ -408,7 +409,6 @@ no local state file to drift out of sync. Model facades and the agent are Python
 | `llmaker chat [name]` | Interactive or one-shot chat — `--message`, stdin |
 | `llmaker open <name>` | Open a container's web UI — `--print` |
 | `llmaker logs <name> -f` | Stream logs from any container |
-| `llmaker stop \| start \| rm <name>…` | Lifecycle management — `rm --force` |
 | `llmaker doctor` | Validate the environment (Docker, GPU, platform caveats) |
 
 ---
