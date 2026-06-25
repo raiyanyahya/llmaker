@@ -41,6 +41,7 @@ type Instance struct {
 	Health  Health
 	Created time.Time
 	Runtime RuntimeKind
+	Stack   string // the named stack this resource belongs to (empty if standalone)
 }
 
 // URL is the base address of the instance's facade as reachable from this host.

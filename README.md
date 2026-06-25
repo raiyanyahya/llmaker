@@ -331,6 +331,9 @@ fleet view, and declarative engine pick it up automatically.
 `stack init` generates one of these; it can also be authored by hand. `apply`
 reconciles the running stack to the file — provisioning services before the
 applications that depend on them — and `--prune` removes anything not declared.
+Give the file a top-level `name:` and `--prune` is **scoped to that stack**, so
+applying one stack never deletes another's containers (scaffolded stacks are
+named automatically). An unnamed file prunes the whole managed fleet.
 
 ```yaml
 # stack.yaml  →  llmaker apply -f stack.yaml [--prune]

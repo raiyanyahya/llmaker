@@ -126,8 +126,14 @@ func runApply(ctx context.Context, app *App, opts applyOptions) error {
 
 	var pruned int
 	if opts.prune {
+		// When the file names itself, prune is scoped to that stack so applying
+		// one stack never deletes another's resources. An unnamed file prunes the
+		// whole managed fleet (the original, documented behavior).
+		stackName := cfg.StackName()
+		inStack := func(resourceStack string) bool { return stackName == "" || resourceStack == stackName }
+
 		for _, in := range existing {
-			if desired[in.Name] {
+			if desired[in.Name] || !inStack(in.Stack) {
 				continue
 			}
 			if err := app.step("Removing "+in.Name+" (pruned)", func() error {
@@ -139,7 +145,7 @@ func runApply(ctx context.Context, app *App, opts applyOptions) error {
 			}
 		}
 		for _, svc := range existingServices {
-			if desiredSvc[svc.Name] {
+			if desiredSvc[svc.Name] || !inStack(svc.Stack) {
 				continue
 			}
 			if err := app.step("Removing service "+svc.Name+" (pruned)", func() error {

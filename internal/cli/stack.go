@@ -276,6 +276,21 @@ services:
 	},
 }
 
+// stackContent returns the template body with a top-level `name:` ensured, so a
+// scaffolded stack is automatically scoped for `apply --prune` (applying it
+// never touches another stack's resources).
+func stackContent(tpl stackTemplate) string {
+	if strings.HasPrefix(tpl.content, "name:") || strings.Contains(tpl.content, "\nname:") {
+		return tpl.content
+	}
+	marker := "version: \"1\"\n"
+	if i := strings.Index(tpl.content, marker); i >= 0 {
+		j := i + len(marker)
+		return tpl.content[:j] + "name: " + tpl.name + "\n" + tpl.content[j:]
+	}
+	return "name: " + tpl.name + "\n" + tpl.content
+}
+
 func findStackTemplate(name string) (stackTemplate, bool) {
 	for _, t := range stackTemplates {
 		if t.name == name {
@@ -335,7 +350,7 @@ func newStackUpCmd(app *App) *cobra.Command {
 			if _, err := os.Stat(out); err == nil && !force {
 				io.Println(t.Muted.Render("Using existing " + out + " (pass --force to regenerate from the template)."))
 			} else {
-				if err := os.WriteFile(out, []byte(tpl.content), 0o644); err != nil {
+				if err := os.WriteFile(out, []byte(stackContent(tpl)), 0o644); err != nil {
 					return fmt.Errorf("write %s: %w", out, err)
 				}
 				io.Println(t.SuccessLine("Wrote " + t.Value.Render(out) + " (" + tpl.name + " stack)"))
@@ -384,7 +399,7 @@ func newStackInitCmd(app *App) *cobra.Command {
 			if _, err := os.Stat(out); err == nil && !force {
 				return fmt.Errorf("%s already exists (use --force to overwrite, or -o to pick another path)", out)
 			}
-			if err := os.WriteFile(out, []byte(tpl.content), 0o644); err != nil {
+			if err := os.WriteFile(out, []byte(stackContent(tpl)), 0o644); err != nil {
 				return fmt.Errorf("write %s: %w", out, err)
 			}
 			io.Println(t.SuccessLine("Wrote " + t.Value.Render(out) + " (" + tpl.name + " stack)"))

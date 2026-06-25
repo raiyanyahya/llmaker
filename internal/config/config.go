@@ -19,9 +19,26 @@ import (
 // File is the root of an llm.yaml document.
 type File struct {
 	Version   string     `yaml:"version"`
+	Name      string     `yaml:"name"` // optional stack name; scopes `apply --prune`
 	Defaults  Defaults   `yaml:"defaults"`
 	Instances []Instance `yaml:"instances"`
 	Services  []Service  `yaml:"services"`
+}
+
+// StackName returns the normalized stack name (the file's top-level `name`),
+// used to label resources and scope `apply --prune`. Empty when unnamed.
+func (f *File) StackName() string {
+	return engine.NormalizeName(f.Name)
+}
+
+// validStack returns the normalized stack name, erroring if it's set but not a
+// valid identifier (it becomes a Docker label value and a prune selector).
+func (f *File) validStack() (string, error) {
+	name := f.StackName()
+	if name != "" && !engine.ValidName(name) {
+		return "", fmt.Errorf("invalid stack name %q (use lowercase letters, digits, - or _)", f.Name)
+	}
+	return name, nil
 }
 
 // Service is one declared infrastructure service (resolved against the catalog).
@@ -88,6 +105,10 @@ func (f *File) ToSpecs() ([]engine.Spec, error) {
 	// A stack may declare only services (e.g. a vector DB + cache with no LLM
 	// yet), so an empty instances list is allowed; apply guards the
 	// everything-empty case.
+	stack, err := f.validStack()
+	if err != nil {
+		return nil, err
+	}
 	seen := map[string]bool{}
 	specs := make([]engine.Spec, 0, len(f.Instances))
 
@@ -122,6 +143,7 @@ func (f *File) ToSpecs() ([]engine.Spec, error) {
 			GPU:     resolveBool(in.GPU, f.Defaults.GPU, false),
 			Env:     in.Env,
 			Runtime: engine.RuntimeContainer,
+			Stack:   stack,
 		}
 
 		memStr := firstNonEmpty(in.Memory, f.Defaults.Memory)
@@ -164,6 +186,10 @@ func (f *File) Names() []string {
 // ports left unset (0) are auto-allocated later by apply, so the file stays
 // portable.
 func (f *File) ToServiceSpecs() ([]engine.ServiceSpec, error) {
+	stack, err := f.validStack()
+	if err != nil {
+		return nil, err
+	}
 	seen := map[string]bool{}
 	specs := make([]engine.ServiceSpec, 0, len(f.Services))
 
@@ -208,6 +234,7 @@ func (f *File) ToServiceSpecs() ([]engine.ServiceSpec, error) {
 			Host:     firstNonEmpty(s.Host, f.Defaults.Host, "127.0.0.1"),
 			Env:      mergeServiceEnv(cat.Env, s.Env),
 			Volumes:  volumes,
+			Stack:    stack,
 		}
 
 		if s.Memory != "" {

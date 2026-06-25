@@ -47,6 +47,7 @@ type Spec struct {
 	Host    string // host bind address; defaults to 127.0.0.1
 	Env     map[string]string
 	Runtime RuntimeKind
+	Stack   string // named stack this instance belongs to (set by `apply`)
 }
 
 // Runtime is the orchestration backend. Implementations must be safe to call

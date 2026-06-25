@@ -444,6 +444,33 @@ func TestRunApplyPrunes(t *testing.T) {
 	}
 }
 
+func TestRunApplyPruneScopedToStack(t *testing.T) {
+	app, rt, _, _ := testApp(t)
+	// Resources belonging to a *different* named stack must survive a scoped prune.
+	rt.Seed(engine.Instance{Name: "other", Backend: backend.Ollama, State: engine.StateRunning, Stack: "otherstack"})
+	// And an unrelated standalone instance (no stack) must also be left alone.
+	rt.Seed(engine.Instance{Name: "solo", Backend: backend.Ollama, State: engine.StateRunning})
+
+	dir := t.TempDir()
+	path := dir + "/stack.yaml"
+	if err := writeFile(path, "name: mystack\ninstances:\n  - name: keep\n    model: llama3:8b\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runApply(context.Background(), app, applyOptions{file: path, prune: true}); err != nil {
+		t.Fatalf("runApply: %v", err)
+	}
+
+	if _, err := rt.Get(context.Background(), "keep"); err != nil {
+		t.Errorf("declared instance should exist: %v", err)
+	}
+	if _, err := rt.Get(context.Background(), "other"); err != nil {
+		t.Error("a different stack's instance must NOT be pruned")
+	}
+	if _, err := rt.Get(context.Background(), "solo"); err != nil {
+		t.Error("an unrelated standalone instance must NOT be pruned by a named stack")
+	}
+}
+
 func TestResolveName(t *testing.T) {
 	existing := []engine.Instance{{Name: "taken"}}
 	if _, err := resolveName("taken", existing); err == nil {

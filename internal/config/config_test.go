@@ -7,6 +7,40 @@ import (
 	"github.com/raiyanyahya/llmaker/internal/engine"
 )
 
+func TestStackNameThreadsToSpecs(t *testing.T) {
+	f, err := Parse([]byte("name: Prod\ninstances:\n  - name: chat\n    model: m\nservices:\n  - use: qdrant\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if f.StackName() != "prod" {
+		t.Errorf("StackName() = %q, want normalized %q", f.StackName(), "prod")
+	}
+	specs, err := f.ToSpecs()
+	if err != nil {
+		t.Fatalf("ToSpecs: %v", err)
+	}
+	if specs[0].Stack != "prod" {
+		t.Errorf("instance Stack = %q, want %q", specs[0].Stack, "prod")
+	}
+	svcs, err := f.ToServiceSpecs()
+	if err != nil {
+		t.Fatalf("ToServiceSpecs: %v", err)
+	}
+	if svcs[0].Stack != "prod" {
+		t.Errorf("service Stack = %q, want %q", svcs[0].Stack, "prod")
+	}
+}
+
+func TestInvalidStackNameRejected(t *testing.T) {
+	f, err := Parse([]byte("name: \"bad name!\"\ninstances:\n  - name: chat\n    model: m\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := f.ToSpecs(); err == nil {
+		t.Fatal("expected an invalid stack name to be rejected")
+	}
+}
+
 func TestParseAndLower(t *testing.T) {
 	doc := []byte(`
 version: "1"

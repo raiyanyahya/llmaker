@@ -22,6 +22,7 @@ type ServiceSpec struct {
 	Volumes  []VolumeBinding
 	Memory   int64 // bytes; 0 means "no limit"
 	CPUs     float64
+	Stack    string // named stack this service belongs to (set by `apply`)
 }
 
 // PortBinding maps a container port to a host port.
@@ -51,6 +52,7 @@ type Service struct {
 	State    State
 	Health   Health
 	Created  time.Time
+	Stack    string // the named stack this service belongs to (empty if standalone)
 }
 
 // PrimaryPort returns the host port users primarily connect to (the binding

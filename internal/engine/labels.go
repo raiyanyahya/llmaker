@@ -23,6 +23,9 @@ const (
 	LabelHost    = "llmaker.host"
 	LabelRuntime = "llmaker.runtime"
 	LabelCreated = "llmaker.created"
+	// LabelStack groups resources created together from a named stack file, so
+	// `apply --prune` can be scoped to that stack instead of the whole fleet.
+	LabelStack = "llmaker.stack"
 
 	// LabelType distinguishes an LLM instance from an infrastructure service.
 	// It is absent on instances created before services existed, which is why
@@ -54,7 +57,7 @@ func SpecLabels(s Spec, image string, port int) map[string]string {
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	return map[string]string{
+	m := map[string]string{
 		LabelManagedBy: ManagedByValue,
 		LabelType:      TypeInstance,
 		LabelName:      s.Name,
@@ -66,6 +69,10 @@ func SpecLabels(s Spec, image string, port int) map[string]string {
 		LabelRuntime:   string(rt),
 		LabelCreated:   time.Now().UTC().Format(time.RFC3339),
 	}
+	if s.Stack != "" {
+		m[LabelStack] = s.Stack
+	}
+	return m
 }
 
 // ServiceLabels builds the label set stamped onto a service container. Port
@@ -76,7 +83,7 @@ func ServiceLabels(s ServiceSpec) map[string]string {
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	return map[string]string{
+	m := map[string]string{
 		LabelManagedBy: ManagedByValue,
 		LabelType:      TypeService,
 		LabelName:      s.Name,
@@ -87,6 +94,10 @@ func ServiceLabels(s ServiceSpec) map[string]string {
 		LabelPorts:     encodePorts(s.Ports),
 		LabelCreated:   time.Now().UTC().Format(time.RFC3339),
 	}
+	if s.Stack != "" {
+		m[LabelStack] = s.Stack
+	}
+	return m
 }
 
 // ManagedFilter is the label selector that matches only llmaker's own objects.
@@ -118,6 +129,7 @@ func InstanceFromLabels(id string, state State, labels map[string]string) Instan
 		State:   state,
 		Health:  HealthUnknown,
 		Runtime: RuntimeKind(labels[LabelRuntime]),
+		Stack:   labels[LabelStack],
 	}
 	if inst.Runtime == "" {
 		inst.Runtime = RuntimeContainer
@@ -144,6 +156,7 @@ func ServiceFromLabels(id string, state State, labels map[string]string) Service
 		Ports:    decodePorts(labels[LabelPorts]),
 		State:    state,
 		Health:   HealthUnknown,
+		Stack:    labels[LabelStack],
 	}
 	if ts, err := time.Parse(time.RFC3339, labels[LabelCreated]); err == nil {
 		svc.Created = ts
