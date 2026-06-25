@@ -102,7 +102,8 @@ calculator = Tool(
 
 
 async def _current_time(_: dict) -> str:
-    return datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+    # datetime.timezone.utc (not datetime.UTC, which is 3.11+) keeps Python 3.10 happy.
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 
 current_time = Tool(
