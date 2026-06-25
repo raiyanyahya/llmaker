@@ -65,9 +65,9 @@ is **traced out of the box**. From a single model to a complete application:
 
 ```bash
 # ── Build a complete application stack ──────────────────────────
-llmaker stack init rag          # choose: rag · research · code · chatbot · faq · recommend
-llmaker apply                   # provision the whole stack — model, vector DB,
-                                # embeddings, agent & tracing — all networked
+llmaker stack up assistant      # one command → a private ChatGPT-style UI over a local model
+llmaker stack init rag          # …or scaffold any stack to edit, then apply it:
+llmaker apply                   #   assistant · rag · research · code · chatbot · faq · recommend
 
 # ── …or run a single model (OpenAI-compatible) ──────────────────
 llmaker up --model llama3:8b    # a local endpoint — explicit, or a preset:
@@ -105,7 +105,7 @@ by name — no Compose file and no glue code.
 
 | | |
 |---|---|
-| **The complete stack, curated** | Models **and** the infrastructure around them — vector databases (Qdrant, Chroma, pgvector, Weaviate), Redis, embeddings, Langfuse — from one versioned catalog. |
+| **The complete stack, curated** | Models **and** the infrastructure around them — vector databases (Qdrant, Chroma, pgvector, Weaviate), Redis, embeddings, Open WebUI, Langfuse — from one versioned catalog. |
 | **Automatic service discovery** | Every model and service joins a private Docker network and resolves by name. Your application reaches `chat:8080` and `qdrant:6333` with zero IP wiring. |
 | **A retrieval & tool agent, built in** | A FastAPI + LangGraph service: `rewrite → retrieve → rerank → generate` (multi-turn, MMR), a tool-calling loop (calculator, knowledge base, self-hosted web search, SQL), and a semantic recommendation API. |
 | **Observability by default** | The RAG stack ships Langfuse; every query is traced (retrieval hits and scores, generation model and token usage) with no setup. |
@@ -165,8 +165,9 @@ git clone https://github.com/raiyanyahya/llmaker && cd llmaker && make build
 Provision and run a complete retrieval-augmented generation stack:
 
 ```bash
-llmaker stack init rag        # generate stack.yaml (rag | research | code | chatbot | faq | recommend)
-make image-agent              # build the agent image once
+llmaker stack up assistant    # scaffold + apply in one step (assistant needs no agent image)
+llmaker stack init rag        # generate stack.yaml (assistant | rag | research | code | chatbot | faq | recommend)
+make image-agent              # build the agent image once (stacks that include the agent)
 llmaker apply -f stack.yaml   # provision the stack — model + services, networked
 llmaker ls                    # inspect models and services in one view
 ```
@@ -197,12 +198,14 @@ client.chat.completions.create(model="llama3:8b",
 
 ## Stacks
 
-A stack is a model plus the services around it, provisioned together. Each
-template is generated with `llmaker stack init <name>` and applied with
+A stack is a model plus the services around it, provisioned together. Scaffold
+and run one in a single step with `llmaker stack up <name>`, or generate a
+`stack.yaml` to edit with `llmaker stack init <name>` and apply it with
 `llmaker apply`.
 
 | Template | Application | Components |
 |---|---|---|
+| `assistant` | A private, ChatGPT-style assistant over a local model — chats, prompts, RAG in the UI. No agent image to build | LLM · Open WebUI |
 | `rag` | Document Q&A — ingest files, query with grounded answers and sources, fully traced | LLM · Qdrant · embeddings · agent · Langfuse · Postgres |
 | `research` | A tool-using assistant that searches the live web *and* your documents, then synthesizes | LLM · SearXNG · Qdrant · embeddings · agent |
 | `code` | A code assistant — ingest a repo, ask grounded questions and review | code LLM · Qdrant · embeddings · agent |
@@ -385,12 +388,14 @@ no local state file to drift out of sync. Model facades and the agent are Python
 
 | Command | Description |
 |---|---|
-| `llmaker stack init <rag\|research\|code\|chatbot\|faq\|recommend>` | Generate a ready-to-apply stack definition |
+| `llmaker stack up <assistant\|rag\|research\|code\|chatbot\|faq\|recommend>` | Scaffold a stack and apply it in one command |
+| `llmaker stack init <template>` | Generate a ready-to-apply stack definition to edit |
 | `llmaker apply -f stack.yaml` | Provision / reconcile a declarative stack — `--prune` |
 | `llmaker up [preset]` | Provision a model instance — preset, flags, or interactive wizard |
+| `llmaker stop \| start \| restart \| rm <name>...` | Instance lifecycle — `restart` stops then starts |
 | `llmaker service catalog` | List available services |
 | `llmaker service add <type> [name]` | Provision a service — `--env`, `--port`, `--memory` |
-| `llmaker service ls \| rm \| stop \| start` | Manage services — `--json` |
+| `llmaker service ls \| rm \| stop \| start \| restart` | Manage services — `--json` |
 | `llmaker ls` | List the fleet — models and services — `--json`, `--quiet` |
 | `llmaker top` | Live resource dashboard across the fleet |
 | `llmaker status <name>` | Detailed instance status — `--json` |

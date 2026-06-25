@@ -22,6 +22,28 @@ type stackTemplate struct {
 // (`make image-agent`) or be pullable.
 var stackTemplates = []stackTemplate{
 	{
+		name:    "assistant",
+		summary: "Private ChatGPT: a local model + Open WebUI (no agent image to build)",
+		content: `# Assistant stack — a private, ChatGPT-style assistant over a local model.
+#   llmaker stack up assistant            # scaffold + bring it up in one command
+#   open the Open WebUI URL (see ` + "`llmaker service ls`" + `) and start chatting
+#
+# Pure public images — there's no agent image to build. Open WebUI reaches the
+# model over the llmaker network at http://chat:8080/v1.
+version: "1"
+
+defaults: { backend: ollama }
+
+instances:
+  - name: chat                # the model behind the UI  → chat:8080
+    model: llama3:8b
+    memory: 8g
+
+services:
+  - use: open-webui           # ChatGPT-style web UI     → open-webui:8080
+`,
+	},
+	{
 		name:    "rag",
 		summary: "Doc Q&A: LLM + Qdrant + embeddings + RAG agent + Langfuse tracing",
 		content: `# RAG stack — ground answers in your own documents, with tracing.
@@ -217,13 +239,58 @@ func stackTemplateNames() []string {
 func newStackCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "stack",
-		Short:   "Scaffold whole-stack templates (RAG, research, code, chatbot, FAQ, recommend)",
+		Short:   "Scaffold & run whole-stack templates (assistant, RAG, research, code, chatbot, FAQ, recommend)",
 		GroupID: groupFleet,
 		Long: "Scaffold a ready-to-apply stack.yaml that wires an LLM together with the\n" +
-			"services around it (vector DB, cache, embeddings, a LangGraph agent), so\n" +
-			"`llmaker apply` brings up a working system in one step.",
+			"services around it (web UI, vector DB, cache, embeddings, a LangGraph agent),\n" +
+			"so `llmaker apply` brings up a working system in one step. `stack up` does\n" +
+			"the scaffold and the apply together.",
 	}
-	cmd.AddCommand(newStackInitCmd(app))
+	cmd.AddCommand(newStackInitCmd(app), newStackUpCmd(app))
+	return cmd
+}
+
+func newStackUpCmd(app *App) *cobra.Command {
+	var out string
+	var force, prune, noPull bool
+	cmd := &cobra.Command{
+		Use:       "up <template>",
+		Short:     "Scaffold a stack template and apply it in one command",
+		Args:      cobra.ExactArgs(1),
+		ValidArgs: stackTemplateNames(),
+		Long: "Write a stack.yaml from a template and immediately `apply` it — the\n" +
+			"fastest path from nothing to a running stack. If the stack file already\n" +
+			"exists it is reused as-is (pass --force to regenerate from the template).\n\n" +
+			"Templates:\n" + stackTemplateHelp(),
+		Example: "  llmaker stack up assistant     # a private ChatGPT-style UI over a local model\n" +
+			"  llmaker stack up rag           # full RAG stack (build the agent image first)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			tpl, ok := findStackTemplate(args[0])
+			if !ok {
+				return fmt.Errorf("unknown template %q (available: %s)", args[0], strings.Join(stackTemplateNames(), ", "))
+			}
+			if out == "" {
+				out = "stack.yaml"
+			}
+			io := app.IO
+			t := io.Theme
+			if _, err := os.Stat(out); err == nil && !force {
+				io.Println(t.Muted.Render("Using existing " + out + " (pass --force to regenerate from the template)."))
+			} else {
+				if err := os.WriteFile(out, []byte(tpl.content), 0o644); err != nil {
+					return fmt.Errorf("write %s: %w", out, err)
+				}
+				io.Println(t.SuccessLine("Wrote " + t.Value.Render(out) + " (" + tpl.name + " stack)"))
+			}
+			io.Println()
+			return runApply(cmd.Context(), app, applyOptions{file: out, prune: prune, noPull: noPull})
+		},
+	}
+	f := cmd.Flags()
+	f.StringVarP(&out, "out", "o", "", "stack file path (default: stack.yaml)")
+	f.BoolVarP(&force, "force", "f", false, "regenerate the stack file from the template before applying")
+	f.BoolVar(&prune, "prune", false, "remove managed resources not present in the stack")
+	f.BoolVar(&noPull, "no-pull", false, "don't preload models")
 	return cmd
 }
 

@@ -26,6 +26,7 @@ const (
 	CategorySearch        Category = "search"
 	CategorySpeech        Category = "speech"
 	CategoryObservability Category = "observability"
+	CategoryUI            Category = "ui"
 	CategoryAgent         Category = "agent"
 )
 
@@ -209,6 +210,25 @@ var registry = map[string]Service{
 		},
 		Notes: "Needs a Postgres: run `llmaker service add pgvector` first (the default DATABASE_URL points at it over the llmaker network). Boots with fixed dev API keys pk-lf-llmaker / sk-lf-llmaker; sign in as admin@llmaker.local / llmaker-dev.",
 	},
+	"open-webui": {
+		Kind:        "open-webui",
+		DisplayName: "Open WebUI",
+		Category:    CategoryUI,
+		Image:       "ghcr.io/open-webui/open-webui:main",
+		Description: "ChatGPT-style web UI for your models — chats, prompts, RAG, multi-user.",
+		Ports:       []Port{{Container: 8080, Name: "http", Primary: true}},
+		Volumes:     []Volume{{Suffix: "data", Path: "/app/backend/data"}},
+		Env: map[string]string{
+			"OPENAI_API_BASE_URL": "http://chat:8080/v1",
+			"OPENAI_API_KEY":      "not-needed",
+			// Frictionless on trusted localhost; turn on before exposing it.
+			"WEBUI_AUTH": "False",
+		},
+		Notes: "Talks to the in-network model named \"chat\" (http://chat:8080/v1) — the " +
+			"`assistant` stack wires this for you (or point OPENAI_API_BASE_URL at any " +
+			"instance's facade). WEBUI_AUTH=False suits trusted localhost; set it True with a " +
+			"WEBUI_SECRET_KEY before exposing the UI beyond your machine.",
+	},
 	"agent": {
 		Kind:        "agent",
 		DisplayName: "RAG agent (LangGraph)",
@@ -245,6 +265,8 @@ func Get(name string) (Service, error) {
 		key = "searxng"
 	case "stt", "asr", "speech-to-text", "transcribe":
 		key = "whisper"
+	case "openwebui", "open-webui", "webui", "ui", "chat-ui", "chatui":
+		key = "open-webui"
 	case "qdrant", "chroma", "weaviate", "redis", "embeddings", "pgvector", "langfuse", "searxng", "whisper":
 		// canonical
 	}
@@ -281,7 +303,7 @@ func Tier(c Category) int {
 		return 0
 	case CategoryEmbeddings, CategorySearch, CategorySpeech, CategoryObservability:
 		return 1
-	case CategoryAgent:
+	case CategoryUI, CategoryAgent:
 		return 2
 	default:
 		return 1

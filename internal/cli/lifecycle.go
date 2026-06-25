@@ -38,6 +38,25 @@ func newStartCmd(app *App) *cobra.Command {
 	}
 }
 
+func newRestartCmd(app *App) *cobra.Command {
+	return &cobra.Command{
+		Use:     "restart <name>...",
+		Short:   "Restart instances (stop then start)",
+		GroupID: groupLifecycle,
+		Args:    cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runLifecycle(cmd.Context(), app, args, "Restarting", func(ctx context.Context, rt engine.Runtime, in engine.Instance) error {
+				if in.IsRunning() {
+					if err := rt.Stop(ctx, in.Name, engine.DefaultStopTimeout); err != nil {
+						return err
+					}
+				}
+				return rt.Start(ctx, in.Name)
+			})
+		},
+	}
+}
+
 func newRmCmd(app *App) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{

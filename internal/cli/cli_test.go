@@ -247,6 +247,20 @@ func TestLifecycleStopStartRemove(t *testing.T) {
 	}
 }
 
+func TestRestartInstance(t *testing.T) {
+	app, rt, _, _ := testApp(t)
+	seedRunning(rt, "x")
+	cmd := newRestartCmd(app)
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{"x"})
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	if in, _ := rt.Get(context.Background(), "x"); in.State != engine.StateRunning {
+		t.Errorf("state after restart = %q, want running", in.State)
+	}
+}
+
 func TestRmRunningRequiresForce(t *testing.T) {
 	app, rt, _, _ := testApp(t)
 	seedRunning(rt, "x")
@@ -531,7 +545,7 @@ func TestMustGetUnknown(t *testing.T) {
 func TestNewRootCmdHasAllCommands(t *testing.T) {
 	app, _, _, _ := testApp(t)
 	root := NewRootCmd(app)
-	want := []string{"up", "ls", "status", "top", "pull", "chat", "open", "logs", "stop", "start", "rm", "apply", "doctor", "build", "version"}
+	want := []string{"up", "ls", "service", "stack", "status", "top", "pull", "chat", "open", "logs", "stop", "start", "restart", "rm", "apply", "doctor", "build", "version"}
 	have := map[string]bool{}
 	for _, c := range root.Commands() {
 		have[c.Name()] = true

@@ -163,6 +163,10 @@ def test_auth_enforced_when_key_set():
     with make_client(api_key="secret") as c:
         assert c.get("/health").status_code == 200  # health stays open
         assert c.post("/api/chat", json={"question": "hi"}).status_code == 401
+        wrong = c.post(
+            "/api/chat", json={"question": "hi"}, headers={"Authorization": "Bearer nope"}
+        )
+        assert wrong.status_code == 401
         ok = c.post(
             "/api/chat", json={"question": "hi"}, headers={"Authorization": "Bearer secret"}
         )

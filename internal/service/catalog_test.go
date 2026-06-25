@@ -13,6 +13,9 @@ func TestGetResolvesAliases(t *testing.T) {
 		"pg":         "pgvector",
 		"tei":        "embeddings",
 		"embedding":  "embeddings",
+		"openwebui":  "open-webui",
+		"webui":      "open-webui",
+		"ui":         "open-webui",
 	}
 	for in, want := range cases {
 		got, err := Get(in)

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,17 +39,57 @@ func TestStackInitWritesValidTemplates(t *testing.T) {
 			if len(svcs) == 0 {
 				t.Errorf("%s: expected services, got 0", name)
 			}
-			// Every template includes the agent.
-			hasAgent := false
-			for _, s := range svcs {
-				if s.Service == "agent" {
-					hasAgent = true
-				}
-			}
-			if !hasAgent {
-				t.Errorf("%s: template missing the agent service", name)
-			}
 		})
+	}
+}
+
+func TestAssistantStackUsesOpenWebUI(t *testing.T) {
+	tpl, ok := findStackTemplate("assistant")
+	if !ok {
+		t.Fatal("assistant template should exist")
+	}
+	f, err := config.Parse([]byte(tpl.content))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	svcs, err := f.ToServiceSpecs()
+	if err != nil {
+		t.Fatalf("ToServiceSpecs: %v", err)
+	}
+	found := false
+	for _, s := range svcs {
+		if s.Service == "open-webui" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("assistant stack should include the open-webui service")
+	}
+}
+
+func TestStackUpScaffoldsAndApplies(t *testing.T) {
+	app, rt, _, out := testApp(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stack.yaml")
+
+	cmd := newStackUpCmd(app)
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{"assistant", "-o", path})
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("stack up assistant: %v", err)
+	}
+
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("stack file not written: %v", err)
+	}
+	if _, err := rt.Get(context.Background(), "chat"); err != nil {
+		t.Errorf("instance chat not created: %v", err)
+	}
+	if _, err := rt.GetService(context.Background(), "open-webui"); err != nil {
+		t.Errorf("service open-webui not created: %v", err)
+	}
+	if !strings.Contains(out.String(), "Applied") {
+		t.Errorf("missing apply summary:\n%s", out.String())
 	}
 }
 

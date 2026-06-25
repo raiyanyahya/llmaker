@@ -6,6 +6,7 @@ pipeline; this module is just wiring and HTTP."""
 
 from __future__ import annotations
 
+import hmac
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -168,7 +169,8 @@ def create_app(
         if not key:
             return
         header = request.headers.get("authorization", "")
-        if header != f"Bearer {key}":
+        # Constant-time compare so a wrong token can't be inferred by timing.
+        if not hmac.compare_digest(header.encode("utf-8"), f"Bearer {key}".encode()):
             raise HTTPException(status_code=401, detail="missing or invalid bearer token")
 
     async def resume(session_id: str | None, history) -> list[dict]:

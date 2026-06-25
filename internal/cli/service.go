@@ -36,6 +36,7 @@ func newServiceCmd(app *App) *cobra.Command {
 		newServiceRmCmd(app),
 		newServiceStopCmd(app),
 		newServiceStartCmd(app),
+		newServiceRestartCmd(app),
 	)
 	return cmd
 }
@@ -266,6 +267,21 @@ func newServiceStartCmd(app *App) *cobra.Command {
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return forEachService(cmd.Context(), app, args, "Starting", func(ctx context.Context, rt engine.Runtime, name string) error {
+				return rt.Start(ctx, name)
+			})
+		},
+	}
+}
+
+func newServiceRestartCmd(app *App) *cobra.Command {
+	return &cobra.Command{
+		Use:   "restart <name>...",
+		Short: "Restart services (stop then start)",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return forEachService(cmd.Context(), app, args, "Restarting", func(ctx context.Context, rt engine.Runtime, name string) error {
+				// Stop is best-effort: an already-stopped service still starts.
+				_ = rt.Stop(ctx, name, engine.DefaultStopTimeout)
 				return rt.Start(ctx, name)
 			})
 		},
