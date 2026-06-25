@@ -229,6 +229,30 @@ var registry = map[string]Service{
 			"instance's facade). WEBUI_AUTH=False suits trusted localhost; set it True with a " +
 			"WEBUI_SECRET_KEY before exposing the UI beyond your machine.",
 	},
+	"n8n": {
+		Kind:        "n8n",
+		DisplayName: "n8n",
+		Category:    CategoryUI,
+		Image:       "n8nio/n8n:latest",
+		Description: "Low-code workflow automation — wire your LLM into 400+ integrations.",
+		Ports:       []Port{{Container: 5678, Name: "http", Primary: true}},
+		Volumes:     []Volume{{Suffix: "data", Path: "/home/node/.n8n"}},
+		// N8N_SECURE_COOKIE=false lets the editor load over plain http on localhost.
+		Env: map[string]string{"N8N_SECURE_COOKIE": "false"},
+		Notes: "Call your model from a workflow at http://chat:8080/v1 (OpenAI-compatible) over " +
+			"the llmaker network. Set N8N_SECURE_COOKIE=true behind HTTPS.",
+	},
+	"flowise": {
+		Kind:        "flowise",
+		DisplayName: "Flowise",
+		Category:    CategoryUI,
+		Image:       "flowiseai/flowise:latest",
+		Description: "Visual builder for LLM apps & agents — drag-and-drop chains over your models.",
+		Ports:       []Port{{Container: 3000, Name: "http", Primary: true}},
+		Volumes:     []Volume{{Suffix: "data", Path: "/root/.flowise"}},
+		Notes: "Point a ChatOpenAI node's base URL at http://chat:8080/v1 over the llmaker " +
+			"network (any api key works locally).",
+	},
 	"agent": {
 		Kind:        "agent",
 		DisplayName: "RAG agent (LangGraph)",
@@ -267,6 +291,10 @@ func Get(name string) (Service, error) {
 		key = "whisper"
 	case "openwebui", "open-webui", "webui", "ui", "chat-ui", "chatui":
 		key = "open-webui"
+	case "workflow", "automation", "n8n":
+		key = "n8n"
+	case "flowiseai", "flowise":
+		key = "flowise"
 	case "qdrant", "chroma", "weaviate", "redis", "embeddings", "pgvector", "langfuse", "searxng", "whisper":
 		// canonical
 	}

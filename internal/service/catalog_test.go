@@ -16,6 +16,9 @@ func TestGetResolvesAliases(t *testing.T) {
 		"openwebui":  "open-webui",
 		"webui":      "open-webui",
 		"ui":         "open-webui",
+		"workflow":   "n8n",
+		"automation": "n8n",
+		"flowiseai":  "flowise",
 	}
 	for in, want := range cases {
 		got, err := Get(in)

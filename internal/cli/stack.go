@@ -44,6 +44,32 @@ services:
 `,
 	},
 	{
+		name:    "voice",
+		summary: "Talk to a model: Open WebUI + self-hosted Whisper STT (no agent image)",
+		content: `# Voice stack — talk to a local model. Speech-to-text runs in the browser via
+# self-hosted Whisper, wired into Open WebUI. Pure public images, nothing to build.
+#   llmaker stack up voice
+#   open the Open WebUI URL (` + "`llmaker service ls`" + `), click the mic, and speak
+version: "1"
+
+defaults: { backend: ollama }
+
+instances:
+  - name: chat                # the model behind the UI   → chat:8080
+    model: llama3:8b
+    memory: 8g
+
+services:
+  - use: whisper              # speech-to-text            → whisper:8000
+  - name: open-webui          # ChatGPT-style UI w/ voice → open-webui:8080
+    use: open-webui
+    env:
+      AUDIO_STT_ENGINE: openai
+      AUDIO_STT_OPENAI_API_BASE_URL: http://whisper:8000/v1
+      AUDIO_STT_OPENAI_API_KEY: not-needed
+`,
+	},
+	{
 		name:    "rag",
 		summary: "Doc Q&A: LLM + Qdrant + embeddings + RAG agent + Langfuse tracing",
 		content: `# RAG stack — ground answers in your own documents, with tracing.
@@ -214,6 +240,38 @@ services:
   - use: agent                # retrieval + answering  → agent:8800
     # Smaller chunks suit short FAQ entries.
     env: { CHUNK_SIZE: "500", CHUNK_OVERLAP: "80", TOP_K: "3" }
+`,
+	},
+	{
+		name:    "sql",
+		summary: "Talk to your database: LLM + Postgres + agent (read-only NL→SQL) + docs",
+		content: `# SQL assistant stack — ask questions in plain English; the agent answers by
+# running *read-only* SQL (enforced server-side) against Postgres, and can also
+# ground answers in ingested docs.
+#   make image-agent
+#   llmaker stack up sql
+#
+# Load a schema into the bundled Postgres (or point SQL_DSN at your own database),
+# then ask the tool-using endpoint:
+#   POST /api/agent  {"question": "how many orders shipped last week?"}
+version: "1"
+
+defaults: { backend: ollama }
+
+instances:
+  - name: chat                # a tool-capable model    → chat:8080
+    model: qwen2.5:7b         # the sql tool needs reliable tool-calling
+    memory: 8g
+
+services:
+  - use: pgvector             # the SQL database        → pgvector:5432
+  - use: qdrant               # document store          → qdrant:6333
+  - name: embeddings
+    use: embeddings
+    env: { MODEL_ID: BAAI/bge-small-en-v1.5 }
+  - use: agent                # tool-using agent + SQL  → agent:8800
+    env:
+      SQL_DSN: postgresql://llmaker:llmaker@pgvector:5432/llmaker
 `,
 	},
 }
