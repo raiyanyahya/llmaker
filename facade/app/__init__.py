@@ -8,6 +8,7 @@ backend engine (Ollama, llama.cpp, …) and presents one normalized contract:
   * ``/api/status``     aggregate instance + system + model status
   * ``/api/models*``    list / pull (streamed) / delete / set-default
   * ``/ws/status``      live status push for the web UI
+  * ``/metrics``        Prometheus exposition (open, for scraping)
   * ``/``               a self-contained web UI
 
 Backends are pluggable adapters (``app.adapters``); the routes and UI never know

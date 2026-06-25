@@ -108,7 +108,7 @@ by name — no Compose file and no glue code.
 | **The complete stack, curated** | Models **and** the infrastructure around them — vector databases (Qdrant, Chroma, pgvector, Weaviate), Redis, embeddings, Open WebUI, n8n, Flowise, Whisper, Langfuse — from one versioned catalog. |
 | **Automatic service discovery** | Every model and service joins a private Docker network and resolves by name. Your application reaches `chat:8080` and `qdrant:6333` with zero IP wiring. |
 | **A retrieval & tool agent, built in** | A FastAPI + LangGraph service: `rewrite → retrieve → rerank → generate` (multi-turn, MMR), a tool-calling loop (calculator, knowledge base, self-hosted web search, SQL), and a semantic recommendation API. |
-| **Observability by default** | The RAG stack ships Langfuse; every query is traced (retrieval hits and scores, generation model and token usage) with no setup. |
+| **Observability by default** | Every instance exposes Prometheus `/metrics` (requests, tokens/sec, CPU/RAM/GPU) for scraping, and the RAG stack ships Langfuse — every query traced (retrieval hits and scores, model and token usage) with no setup. |
 | **Measurable quality** | An evaluation harness (`/api/eval`) grades answers for groundedness, relevance, and correctness with an LLM judge — retrieval quality you can track across changes, not guess at. |
 | **More than RAG** | First-class endpoints for summarization (map-reduce over long docs), structured JSON extraction, and speech-to-text (Whisper), plus optional Redis-backed conversation memory. |
 | **Declarative, reconcilable** | Define your stack in one file. `llmaker apply` brings it to the desired state in dependency order; `--prune` removes what's no longer declared. |

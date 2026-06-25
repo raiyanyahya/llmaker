@@ -14,6 +14,7 @@ from . import metrics
 from .adapters import Adapter, build_adapter
 from .config import Settings
 from .routes import health, inference, status, ws
+from .routes import metrics as metrics_routes
 from .routes import models as models_routes
 from .state import AppState
 
@@ -51,6 +52,7 @@ def create_app(settings: Settings | None = None, adapter: Adapter | None = None)
     )
 
     app.include_router(health.router)
+    app.include_router(metrics_routes.router)
     app.include_router(status.router)
     app.include_router(models_routes.router)
     app.include_router(inference.router)

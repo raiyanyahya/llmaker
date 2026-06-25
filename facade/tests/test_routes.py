@@ -122,6 +122,30 @@ def test_invalid_json_returns_400(client):
     assert r.status_code == 400
 
 
+def test_metrics_prometheus_exposition(client):
+    r = client.get("/metrics")
+    assert r.status_code == 200
+    assert "text/plain" in r.headers["content-type"]
+    body = r.text
+    assert "# TYPE llmaker_requests_total counter" in body
+    assert "llmaker_up 1" in body
+    assert "llmaker_info{" in body
+
+
+def test_metrics_requests_counter_reflects_traffic(client):
+    client.post("/v1/chat/completions", json={"model": "m", "messages": []})
+    body = client.get("/metrics").text
+    line = next(line for line in body.splitlines() if line.startswith("llmaker_requests_total "))
+    assert int(line.split()[1]) >= 1
+
+
+def test_metrics_open_even_with_api_key():
+    # Scrapers carry no credentials; /metrics stays open like /api/health.
+    app = create_app(settings=Settings(api_key="secret", backend="fake"), adapter=FakeAdapter())
+    with TestClient(app) as c:
+        assert c.get("/metrics").status_code == 200
+
+
 def test_web_ui_served(client):
     r = client.get("/")
     assert r.status_code == 200
