@@ -16,6 +16,7 @@ conventional in-network names (`chat`, `qdrant`, `embeddings`) — a stack from
 | `GET`  | `/api/stats` | collection name, chunk count, models |
 | `POST` | `/api/ingest` | ingest a `file` upload or `text` form field → chunk, embed, store |
 | `POST` | `/api/chat` | `{ "question": "...", "top_k": 4, "history": [{role, content}, …] }` → grounded answer + sources |
+| `POST` | `/api/agent` | `{ "question": "...", "history": [...], "max_steps": 4 }` → tool-using answer + the tool calls it made |
 | `POST` | `/api/items` | `{ "items": [{id, text, metadata?}, …] }` → embed + store items for recommendations |
 | `POST` | `/api/recommend` | `{ "query": "..." }` or `{ "like": ["id", …] }`, `k` → similar items |
 | `GET`  | `/` | self-contained web UI (ingest + ask) |
@@ -38,6 +39,29 @@ rewrite → retrieve → rerank → generate
   `top_k`, trading relevance for diversity so the LLM sees broad, non-redundant context.
 - **generate** — answer using the context plus the conversation so far.
 
+## Tool calling (`/api/agent`)
+
+`/api/agent` runs a second LangGraph graph — a tool-calling loop — where the
+model decides which tools to invoke and the loop executes them until it produces
+an answer (bounded by `AGENT_MAX_STEPS`):
+
+```
+call_model ──(tool calls?)──▶ tools ──▶ call_model ──▶ … ──▶ answer
+```
+
+Built-in tools:
+
+- **calculator** — safe arithmetic (no code execution).
+- **knowledge_base** — retrieval over your ingested documents (RAG, exposed as a
+  tool, so the model searches only when it decides to).
+- **current_time** — the current UTC time.
+- **sql** — a single read-only `SELECT`/`WITH` query against `SQL_DSN`
+  (enabled only when that variable is set).
+
+The response includes the answer and a `steps` array recording each tool call
+(name, arguments, result). Requires a tool-capable model (e.g. `qwen2.5`,
+`llama3.1`). Adding a tool is one entry in `app/tools.py`.
+
 ## Configuration (env)
 
 | Var | Default | Purpose |
@@ -53,6 +77,8 @@ rewrite → retrieve → rerank → generate
 | `FETCH_MULTIPLIER` | `3` | candidates fetched before MMR (`TOP_K × this`) |
 | `MMR_LAMBDA` | `0.5` | rerank relevance↔diversity trade-off (1.0 = pure relevance) |
 | `REWRITE_QUERIES` | `true` | rewrite multi-turn follow-ups into standalone queries |
+| `AGENT_MAX_STEPS` | `4` | max tool-call rounds in `/api/agent` |
+| `SQL_DSN` | — | when set, expose a read-only SQL tool against this database |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `1000` / `150` | ingestion chunking |
 | `PORT` | `8800` | server port |
 | `API_KEY` | — | when set, require `Authorization: Bearer <key>` on `/api/*` |

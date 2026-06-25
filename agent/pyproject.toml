@@ -21,6 +21,7 @@ dependencies = [
     "langfuse>=2,<3",
     "pypdf>=4.0",
     "pydantic-settings>=2.0",
+    "asyncpg>=0.29",
 ]
 
 [project.optional-dependencies]

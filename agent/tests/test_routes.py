@@ -1,4 +1,4 @@
-from fakes import FakeEmbedder, FakeItemStore, FakePipeline, FakeStore
+from fakes import FakeEmbedder, FakeItemStore, FakePipeline, FakeStore, FakeToolAgent
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -16,6 +16,7 @@ def make_client(api_key: str = "") -> TestClient:
         store=store,
         item_store=FakeItemStore(),
         pipeline=pipeline,
+        tool_agent=FakeToolAgent(),
     )
     return TestClient(app)
 
@@ -41,6 +42,20 @@ def test_ingest_then_chat_round_trip():
         body = r.json()
         assert "llmaker" in body["answer"].lower()
         assert body["sources"] and body["sources"][0]["source"] == "doc1"
+
+
+def test_agent_endpoint_returns_answer_and_steps():
+    with make_client() as c:
+        r = c.post("/api/agent", json={"question": "what is 2+2?"})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["answer"]
+        assert body["steps"] and body["steps"][0]["tool"] == "calculator"
+
+
+def test_agent_requires_question():
+    with make_client() as c:
+        assert c.post("/api/agent", json={"question": "  "}).status_code == 400
 
 
 def test_ingest_requires_content():

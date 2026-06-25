@@ -221,14 +221,22 @@ network, configured by environment to discover the others by name.
 ```
 POST /api/ingest      multipart file or text  →  chunk, embed, store
 POST /api/chat        { question, history?, top_k? }  →  answer + sources
+POST /api/agent       { question, history? }  →  tool-using answer + tool calls made
 POST /api/items       { items: [{ id, text, metadata? }] }  →  index for recommendation
 POST /api/recommend   { query }  or  { like: [id, …] }  →  ranked items
 ```
 
+**Tool calling.** Beyond retrieval, `/api/agent` runs a tool-calling loop where
+the model decides which tools to invoke — a **calculator**, the **knowledge base**
+(retrieval as a tool), the **current time**, and an optional read-only **SQL**
+tool over your database — and the loop executes them until it has an answer. The
+response includes every tool call it made. Adding a tool is one entry in
+`agent/app/tools.py`.
+
 **Tracing.** The `rag` stack provisions Langfuse and the agent traces every query
-to it, with zero configuration — each request appears as a `rag-chat` trace with
-its retrieval and generation steps. Tracing is enabled by the template and is
-otherwise opt-in via two environment variables.
+to it, with zero configuration — each request (RAG or tool-using) appears as a
+trace with its retrieval, tool, and generation steps. Tracing is enabled by the
+template and is otherwise opt-in via two environment variables.
 
 **Recommendations** reuse the same embeddings and vector store, with no model
 involved: index items once, then retrieve by free-text intent (`query`) or by
@@ -450,7 +458,8 @@ images/                 backend and agent Dockerfiles
 - [x] Retrieval agent — LangGraph `rewrite → retrieve → rerank → generate`, multi-turn
 - [x] Recommendation engine — semantic `query` and "more like this"
 - [x] Integrated observability — Langfuse tracing
-- [ ] Agent tooling — function calling, dedicated reranking, evaluation
+- [x] Tool-calling agent — calculator, knowledge base, time, read-only SQL
+- [ ] More agent tooling — dedicated reranking, evaluation harness, web search
 - [ ] Additional backends — llama.cpp model management; Metal on macOS
 - [ ] Distribution — multi-architecture images, package managers, releases
 

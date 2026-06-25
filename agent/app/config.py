@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
 
+    # Tool-calling agent.
+    agent_max_steps: int = 4  # max tool-call rounds before forcing an answer
+    sql_dsn: str = ""  # when set, expose a read-only SQL tool against this database
+
     # Server.
     port: int = 8800
     api_key: str = ""  # when set, require Authorization: Bearer <key>

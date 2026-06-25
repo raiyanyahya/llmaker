@@ -110,6 +110,16 @@ class FakePipeline:
         return {"answer": f"Based on the docs: {snippet}", "context": context}
 
 
+class FakeToolAgent:
+    """Stands in for the tool-calling agent; echoes a canned tool run."""
+
+    async def run(self, question, history=None, max_steps=None) -> dict:
+        return {
+            "answer": f"answer to: {question}",
+            "steps": [{"tool": "calculator", "args": {"expression": "2+2"}, "result": "4"}],
+        }
+
+
 class _FakeObservation:
     def __init__(self, kind: str, kwargs: dict, sink: list) -> None:
         self.kind = kind

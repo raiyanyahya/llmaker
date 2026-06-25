@@ -13,12 +13,14 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
+from .agent_graph import ToolAgent
 from .config import Settings, load_settings
 from .embed import Embedder
 from .ingest import chunk_text, extract_text
 from .rag import RagPipeline
 from .recommend import centroid
 from .store import VectorStore
+from .tools import build_tools
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -50,6 +52,12 @@ class RecommendRequest(BaseModel):
     k: int = 5
 
 
+class AgentRequest(BaseModel):
+    question: str
+    history: list[Message] | None = None
+    max_steps: int | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings: Settings = app.state.settings
@@ -67,12 +75,16 @@ async def lifespan(app: FastAPI):
         owned.append(app.state.item_store)
     if getattr(app.state, "pipeline", None) is None:
         app.state.pipeline = RagPipeline(settings, app.state.store, app.state.embedder)
+    if getattr(app.state, "tool_agent", None) is None:
+        tools = build_tools(settings, app.state.store, app.state.embedder)
+        app.state.tool_agent = ToolAgent(settings, tools)
     try:
         yield
     finally:
-        flush = getattr(app.state.pipeline, "flush", None)
-        if callable(flush):
-            flush()
+        for component in (app.state.pipeline, app.state.tool_agent):
+            flush = getattr(component, "flush", None)
+            if callable(flush):
+                flush()
         for c in owned:
             await c.aclose()
 
@@ -84,6 +96,7 @@ def create_app(
     store=None,
     item_store=None,
     pipeline=None,
+    tool_agent=None,
 ) -> FastAPI:
     settings = settings or load_settings()
     app = FastAPI(title="llmaker RAG agent", version="0.1.0", lifespan=lifespan)
@@ -92,6 +105,7 @@ def create_app(
     app.state.store = store
     app.state.item_store = item_store
     app.state.pipeline = pipeline
+    app.state.tool_agent = tool_agent
 
     def require_auth(request: Request) -> None:
         key = settings.api_key
@@ -148,6 +162,15 @@ def create_app(
             for c in result.get("context", [])
         ]
         return {"answer": result.get("answer", ""), "sources": sources}
+
+    @app.post("/api/agent", dependencies=[Depends(require_auth)])
+    async def agent(req: AgentRequest) -> dict:
+        if not req.question.strip():
+            raise HTTPException(status_code=400, detail="question is required")
+        history = [m.model_dump() for m in (req.history or [])]
+        result = await app.state.tool_agent.run(req.question, history, req.max_steps)
+        # steps records each tool call the model made (name, args, result).
+        return {"answer": result.get("answer", ""), "steps": result.get("steps", [])}
 
     @app.post("/api/items", dependencies=[Depends(require_auth)])
     async def add_items(req: ItemsRequest) -> dict:
