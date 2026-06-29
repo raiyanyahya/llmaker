@@ -39,7 +39,6 @@ engines locally. No third-party API keys. No data leaving your machine.
 [![Ollama](https://img.shields.io/badge/backend-Ollama-000000?logo=ollama&logoColor=white)](https://ollama.com)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey?logo=linux&logoColor=white)](#hardware--images)
 
-[![Issues](https://img.shields.io/github/issues/raiyanyahya/llmaker?logo=github)](https://github.com/raiyanyahya/llmaker/issues)
 [![Code size](https://img.shields.io/github/languages/code-size/raiyanyahya/llmaker?logo=github)](https://github.com/raiyanyahya/llmaker)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
