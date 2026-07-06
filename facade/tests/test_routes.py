@@ -113,6 +113,51 @@ def test_tokens_per_second_recorded(client):
     assert client.get("/api/status").json()["metrics"]["tokens_per_second"] > 0
 
 
+def test_default_model_injected_when_omitted(client, adapter):
+    # A client that omits `model` gets the instance default filled in.
+    r = client.post("/v1/chat/completions", json={"messages": [{"role": "user", "content": "hi"}]})
+    assert r.status_code == 200
+    assert adapter.last_payload["model"] == "llama3:8b"
+
+
+def test_explicit_model_is_respected(client, adapter):
+    client.post("/v1/chat/completions", json={"model": "custom:1b", "messages": []})
+    assert adapter.last_payload["model"] == "custom:1b"
+
+
+def test_default_model_tracks_runtime_change(client, adapter):
+    client.post("/api/models/default", json={"model": "switched:3b"})
+    client.post("/v1/completions", json={"prompt": "hi"})
+    assert adapter.last_payload["model"] == "switched:3b"
+
+
+def test_default_model_injected_for_embeddings(client, adapter):
+    client.post("/v1/embeddings", json={"input": "hello"})
+    assert adapter.last_payload["model"] == "llama3:8b"
+
+
+def test_metrics_errors_and_in_flight(settings, adapter):
+    # A failing backend increments errors_total; in-flight settles back to 0.
+    adapter.fail = True
+    app = create_app(settings=settings, adapter=adapter)
+    with TestClient(app, raise_server_exceptions=False) as c:
+        assert c.post("/v1/chat/completions", json={"messages": []}).status_code == 500
+        body = c.get("/metrics").text
+        errors = next(ln for ln in body.splitlines() if ln.startswith("llmaker_errors_total "))
+        in_flight = next(
+            ln for ln in body.splitlines() if ln.startswith("llmaker_requests_in_flight ")
+        )
+        assert int(errors.split()[1]) == 1
+        assert int(in_flight.split()[1]) == 0
+
+
+def test_metrics_completion_tokens_total(client):
+    client.post("/v1/chat/completions", json={"messages": [{"role": "user", "content": "hi"}]})
+    body = client.get("/metrics").text
+    line = next(ln for ln in body.splitlines() if ln.startswith("llmaker_completion_tokens_total "))
+    assert int(line.split()[1]) >= 2  # the fake reports completion_tokens=2
+
+
 def test_invalid_json_returns_400(client):
     r = client.post(
         "/v1/chat/completions",

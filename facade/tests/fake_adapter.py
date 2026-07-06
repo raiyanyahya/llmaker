@@ -12,6 +12,8 @@ class FakeAdapter(Adapter):
     def __init__(self) -> None:
         self.healthy = True
         self.deleted: list[str] = []
+        self.last_payload: dict | None = None  # last chat/completions/embeddings body
+        self.fail = False  # when True, inference raises (to exercise error paths)
         self._installed = [
             InstalledModel(name="llama3:8b", size=4_000_000_000, modified="2024-01-01")
         ]
@@ -35,6 +37,9 @@ class FakeAdapter(Adapter):
         self._installed = [m for m in self._installed if m.name != model]
 
     async def chat(self, payload: dict):
+        self.last_payload = payload
+        if self.fail:
+            raise RuntimeError("backend unavailable")
         if payload.get("stream"):
 
             async def gen():
@@ -49,9 +54,13 @@ class FakeAdapter(Adapter):
         }
 
     async def completions(self, payload: dict):
+        self.last_payload = payload
+        if self.fail:
+            raise RuntimeError("backend unavailable")
         return {"choices": [{"text": "hello"}]}
 
     async def embeddings(self, payload: dict) -> dict:
+        self.last_payload = payload
         return {"data": [{"embedding": [0.1, 0.2, 0.3]}]}
 
     async def openai_models(self) -> dict:

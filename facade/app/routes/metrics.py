@@ -65,6 +65,27 @@ async def metrics(request: Request) -> Response:
     )
     _series(
         lines,
+        "llmaker_errors_total",
+        "counter",
+        "Inference requests that failed with a backend error.",
+        [("", st.errors)],
+    )
+    _series(
+        lines,
+        "llmaker_requests_in_flight",
+        "gauge",
+        "Inference requests currently being served.",
+        [("", st.in_flight)],
+    )
+    _series(
+        lines,
+        "llmaker_completion_tokens_total",
+        "counter",
+        "Cumulative completion tokens generated (non-streamed responses).",
+        [("", st.total_tokens)],
+    )
+    _series(
+        lines,
         "llmaker_tokens_per_second",
         "gauge",
         "Recent generation throughput (tokens/sec).",

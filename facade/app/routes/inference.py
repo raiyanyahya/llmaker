@@ -21,11 +21,30 @@ async def _read_json(request: Request) -> dict:
         raise HTTPException(status_code=400, detail="invalid JSON body") from None
 
 
-def _respond(result):
-    # Adapters return an async byte iterator for streamed responses, else a dict.
-    if hasattr(result, "__aiter__"):
-        return StreamingResponse(result, media_type="text/event-stream")
-    return JSONResponse(result)
+def _fill_default_model(payload: dict, app) -> None:
+    """Inject the instance's default model when the client omits one.
+
+    A self-hosted instance usually serves a single model, so requiring callers
+    to name it is friction: any OpenAI client can point at the facade and leave
+    ``model`` unset. An explicit (non-blank) model is always respected. Uses the
+    live default (which ``/api/models/default`` can change) over the static one.
+    """
+    model = payload.get("model")
+    if isinstance(model, str) and model.strip():
+        return
+    default = app.state.app_state.default_model or app.state.settings.default_model
+    if default:
+        payload["model"] = default
+
+
+async def _tracked_stream(result, state):
+    """Relay a streamed response, keeping it counted as in-flight until drained."""
+    try:
+        async for chunk in result:
+            if chunk:
+                yield chunk
+    finally:
+        state.leave_request()
 
 
 def _record_usage(state, result, elapsed: float) -> None:
@@ -44,31 +63,44 @@ def _record_usage(state, result, elapsed: float) -> None:
         pass
 
 
+async def _serve(request: Request, method_name: str):
+    """Shared path for chat + text completions: parse, inject the default model,
+    account requests/errors/in-flight, and stream or return JSON."""
+    payload = await _read_json(request)
+    app = request.app
+    state = app.state.app_state
+    _fill_default_model(payload, app)
+    state.incr_requests()
+    state.enter_request()
+    start = time.monotonic()
+    try:
+        result = await getattr(app.state.adapter, method_name)(payload)
+    except Exception:
+        state.incr_errors()
+        state.leave_request()
+        raise
+    # Streaming: the byte iterator stays in-flight until the client drains it.
+    if hasattr(result, "__aiter__"):
+        return StreamingResponse(_tracked_stream(result, state), media_type="text/event-stream")
+    _record_usage(state, result, time.monotonic() - start)
+    state.leave_request()
+    return JSONResponse(result)
+
+
 @router.post("/chat/completions")
 async def chat_completions(request: Request):
-    payload = await _read_json(request)
-    state = request.app.state.app_state
-    state.incr_requests()
-    start = time.monotonic()
-    result = await request.app.state.adapter.chat(payload)
-    _record_usage(state, result, time.monotonic() - start)
-    return _respond(result)
+    return await _serve(request, "chat")
 
 
 @router.post("/completions")
 async def completions(request: Request):
-    payload = await _read_json(request)
-    state = request.app.state.app_state
-    state.incr_requests()
-    start = time.monotonic()
-    result = await request.app.state.adapter.completions(payload)
-    _record_usage(state, result, time.monotonic() - start)
-    return _respond(result)
+    return await _serve(request, "completions")
 
 
 @router.post("/embeddings")
 async def embeddings(request: Request):
     payload = await _read_json(request)
+    _fill_default_model(payload, request.app)
     return JSONResponse(await request.app.state.adapter.embeddings(payload))
 
 

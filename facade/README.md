@@ -9,12 +9,25 @@ a backend engine (Ollama, llama.cpp, …) and exposes one normalized contract:
 | `GET`  | `/v1/models` | OpenAI-style model list |
 | `GET`  | `/api/health` | liveness/readiness → 200 / 503 (unauthenticated) |
 | `GET`  | `/api/status` | aggregate instance + system + model status |
+| `GET`  | `/metrics` | Prometheus text exposition (unauthenticated) |
 | `GET`  | `/api/models` | installed models + default |
 | `POST` | `/api/models/pull` | pull a model (streamed NDJSON progress) |
 | `POST` | `/api/models/delete` | delete a model |
 | `POST` | `/api/models/default` | set the default model |
 | `WS`   | `/ws/status` | live status push for the web UI |
 | `GET`  | `/` | self-contained web UI |
+
+**Default-model convenience.** A self-hosted instance usually serves one model, so
+`/v1/chat/completions`, `/v1/completions`, and `/v1/embeddings` fill in the instance's
+default model when the request omits `model` (or sends it blank). Point any OpenAI
+client at the facade and leave `model` unset — an explicit model is always respected,
+and the injected default tracks `POST /api/models/default` at runtime.
+
+**Metrics.** `/metrics` exposes serving and host signals for Prometheus/Grafana:
+`llmaker_requests_total`, `llmaker_errors_total`, `llmaker_requests_in_flight`,
+`llmaker_completion_tokens_total`, `llmaker_tokens_per_second`, plus CPU/RAM/GPU
+gauges. Like `/api/health` it is intentionally unauthenticated (aggregate counters
+only, no secrets) so a scraper needs no credentials.
 
 ## Configuration (env)
 
