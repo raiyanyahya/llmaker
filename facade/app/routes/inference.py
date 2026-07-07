@@ -16,9 +16,14 @@ router = APIRouter(prefix="/v1", dependencies=[Depends(require_auth)])
 async def _read_json(request: Request) -> dict:
     """Parse the JSON body, answering 400 (not 500) on malformed input."""
     try:
-        return await request.json()
+        payload = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="invalid JSON body") from None
+    # A valid-JSON non-object (e.g. [] or "x") would crash the downstream
+    # payload.get(...) with a 500; reject it cleanly here instead.
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="request body must be a JSON object")
+    return payload
 
 
 def _fill_default_model(payload: dict, app) -> None:

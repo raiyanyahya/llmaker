@@ -26,7 +26,9 @@ class Settings:
     default_model: str = ""
     facade_port: int = 8080
     api_key: str = ""
-    cors_origins: list[str] = field(default_factory=lambda: ["*"])
+    # Empty = no cross-origin access (secure default). Browsers still allow the
+    # same-origin web UI; set CORS_ORIGINS to opt specific origins (or "*") in.
+    cors_origins: list[str] = field(default_factory=list)
     keep_alive: str = "5m"
     ollama_url: str = "http://127.0.0.1:11434"
     llamacpp_url: str = "http://127.0.0.1:8081"
@@ -41,7 +43,7 @@ class Settings:
             default_model=env.get("LLMAKER_DEFAULT_MODEL", "").strip(),
             facade_port=_int(env.get("FACADE_PORT"), 8080),
             api_key=env.get("API_KEY", "").strip(),
-            cors_origins=_split_csv(env.get("CORS_ORIGINS", "*")) or ["*"],
+            cors_origins=_split_csv(env.get("CORS_ORIGINS", "")),
             keep_alive=env.get("KEEP_ALIVE", "5m").strip() or "5m",
             ollama_url=env.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/"),
             llamacpp_url=env.get("LLAMACPP_URL", "http://127.0.0.1:8081").rstrip("/"),

@@ -43,13 +43,18 @@ def create_app(settings: Settings | None = None, adapter: Adapter | None = None)
     app.state.app_state = AppState(default_model=settings.default_model)
     app.state.adapter = adapter if adapter is not None else build_adapter(settings)
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origins,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        allow_credentials=False,
-    )
+    # Only enable cross-origin access when origins are explicitly configured.
+    # With none set (the default), the browser blocks cross-site calls, so a
+    # random page the user visits can't drive the loopback facade (e.g. pull or
+    # delete models). The bundled web UI is same-origin and unaffected.
+    if settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_methods=["*"],
+            allow_headers=["*"],
+            allow_credentials=False,
+        )
 
     app.include_router(health.router)
     app.include_router(metrics_routes.router)

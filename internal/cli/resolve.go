@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -69,6 +70,19 @@ func pollHealth(ctx context.Context, app *App, baseURL string, timeout time.Dura
 		case <-ticker.C:
 		}
 	}
+}
+
+// isLoopbackHost reports whether a bind address is loopback-only (so the facade
+// is reachable only from this machine). An empty host means the default 127.0.0.1.
+func isLoopbackHost(host string) bool {
+	switch host {
+	case "", "localhost":
+		return true
+	}
+	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 // firstNonEmpty returns the first non-blank string.

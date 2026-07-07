@@ -12,7 +12,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .agent_graph import ToolAgent
 from .config import Settings, load_settings
@@ -48,7 +48,7 @@ class Message(BaseModel):
 
 class ChatRequest(BaseModel):
     question: str
-    top_k: int | None = None
+    top_k: int | None = Field(default=None, ge=1, le=100)  # retrieval depth (bounded)
     history: list[Message] | None = None  # prior turns, for multi-turn chat
     session_id: str | None = None  # when set + memory enabled, persist/resume history
 
@@ -66,13 +66,13 @@ class ItemsRequest(BaseModel):
 class RecommendRequest(BaseModel):
     query: str | None = None  # recommend by free-text intent
     like: list[str] | None = None  # …or "more like these" item ids
-    k: int = 5
+    k: int = Field(default=5, ge=1, le=100)  # how many to return (bounded)
 
 
 class AgentRequest(BaseModel):
     question: str
     history: list[Message] | None = None
-    max_steps: int | None = None
+    max_steps: int | None = Field(default=None, ge=1, le=20)  # tool-loop budget (bounded)
     session_id: str | None = None
 
 
@@ -95,7 +95,7 @@ class EvalCase(BaseModel):
 
 class EvalRequest(BaseModel):
     cases: list[EvalCase]
-    top_k: int | None = None
+    top_k: int | None = Field(default=None, ge=1, le=100)  # retrieval depth (bounded)
 
 
 @asynccontextmanager

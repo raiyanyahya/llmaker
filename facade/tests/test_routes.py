@@ -74,6 +74,13 @@ def test_chat_non_streaming(client):
     assert r.json()["choices"][0]["message"]["content"] == "Hello world"
 
 
+def test_chat_rejects_non_object_body(client):
+    # Valid JSON that isn't an object must be a clean 400, not a 500.
+    for body in ([], "hi", 5):
+        r = client.post("/v1/chat/completions", json=body)
+        assert r.status_code == 400
+
+
 def test_chat_streaming_sse(client):
     r = client.post(
         "/v1/chat/completions",

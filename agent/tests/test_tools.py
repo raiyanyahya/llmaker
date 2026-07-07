@@ -57,6 +57,16 @@ def test_safe_eval_rejects_huge_power():
     assert safe_eval("2**10") == 1024
 
 
+def test_safe_eval_rejects_nested_power_blowup():
+    # Every exponent here is under the per-exponent cap, but nesting still
+    # explodes the magnitude — must be rejected on result size, not computed.
+    for expr in ["(9**999)**999", "((9**999)**999)**50"]:
+        with pytest.raises(ValueError):
+            safe_eval(expr)
+    # A large-but-bounded result is still allowed.
+    assert safe_eval("9**500") == 9**500
+
+
 async def test_calculator_tool():
     assert await calculator.run({"expression": "6*7"}) == "42"
     # Bad input is reported, never raised.

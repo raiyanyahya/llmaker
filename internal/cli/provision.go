@@ -20,6 +20,15 @@ func provision(ctx context.Context, app *App, rt engine.Runtime, spec engine.Spe
 	// Ensure the container always carries the env its facade needs to self-identify.
 	spec.Env = facadeEnv(spec)
 
+	// A public bind with no API key exposes the facade — including model
+	// pull/delete and host metrics — to anyone on the network. Warn loudly.
+	if !isLoopbackHost(spec.Host) && spec.Env["API_KEY"] == "" {
+		io.Println(t.WarnLine(fmt.Sprintf(
+			"%s binds to %s with no API key: the facade (model pull/delete, /metrics) is reachable by anyone on the network.",
+			spec.Name, spec.Host)))
+		io.Println(t.Muted.Render("  Set --api-key to require a bearer token, or bind to 127.0.0.1."))
+	}
+
 	// Pull the prebuilt image, streaming progress when the runtime supports it.
 	if puller, ok := rt.(engine.ImagePuller); ok {
 		sp := t.NewSpinner(io.Out, "Pulling image "+spec.Image)

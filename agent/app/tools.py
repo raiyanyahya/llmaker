@@ -18,6 +18,7 @@ from __future__ import annotations
 import ast
 import datetime
 import json
+import math
 import operator
 from collections.abc import Awaitable, Callable
 
@@ -65,6 +66,20 @@ _UNARY_OPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
 # Cap exponents so a crafted expression (e.g. 9**9**9) can't pin the CPU / blow
 # up memory building an astronomically large integer.
 _MAX_POW_EXP = 1000
+# Cap the magnitude of any intermediate result too. The exponent cap alone is not
+# enough: nested powers (e.g. ((9**999)**999)**50) keep every exponent small while
+# the value explodes super-exponentially. ~10k bits (≈3000 digits) is far beyond
+# any real calculator use and keeps every operation cheap.
+_MAX_RESULT_BITS = 10_000
+
+
+def _magnitude_bits(value) -> float:
+    """Approximate log2(|value|) — an upper bound used to reject a result that
+    would be too large to compute cheaply, before actually computing it."""
+    if isinstance(value, int):
+        return value.bit_length()  # ≥ log2(|value|)
+    v = abs(value)
+    return math.log2(v) if v > 1.0 else 0.0
 
 
 def safe_eval(expression: str) -> float:
@@ -76,9 +91,18 @@ def safe_eval(expression: str) -> float:
             return node.value
         if isinstance(node, ast.BinOp) and type(node.op) in _BIN_OPS:
             left, right = _eval(node.left), _eval(node.right)
-            if isinstance(node.op, ast.Pow) and abs(right) > _MAX_POW_EXP:
-                raise ValueError("exponent too large")
-            return _BIN_OPS[type(node.op)](left, right)
+            if isinstance(node.op, ast.Pow):
+                if abs(right) > _MAX_POW_EXP:
+                    raise ValueError("exponent too large")
+                # Reject before computing: an astronomically large pow never runs.
+                if _magnitude_bits(left) * abs(right) > _MAX_RESULT_BITS:
+                    raise ValueError("result too large")
+            result = _BIN_OPS[type(node.op)](left, right)
+            # Backstop for growth that isn't a single pow (e.g. a long multiply
+            # chain): reject once an intermediate integer exceeds the cap.
+            if isinstance(result, int) and result.bit_length() > _MAX_RESULT_BITS:
+                raise ValueError("result too large")
+            return result
         if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY_OPS:
             return _UNARY_OPS[type(node.op)](_eval(node.operand))
         raise ValueError("unsupported expression")

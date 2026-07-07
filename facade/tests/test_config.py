@@ -5,7 +5,7 @@ def test_from_env_defaults():
     s = Settings.from_env({})
     assert s.backend == "ollama"
     assert s.facade_port == 8080
-    assert s.cors_origins == ["*"]
+    assert s.cors_origins == []  # secure default: no cross-origin access
     assert s.api_key == ""
 
 
@@ -35,6 +35,11 @@ def test_from_env_bad_port_falls_back():
     assert s.facade_port == 8080
 
 
-def test_from_env_empty_cors_falls_back_to_star():
+def test_from_env_empty_cors_disables_cross_origin():
     s = Settings.from_env({"CORS_ORIGINS": ""})
+    assert s.cors_origins == []
+
+
+def test_from_env_wildcard_cors_opts_in():
+    s = Settings.from_env({"CORS_ORIGINS": "*"})
     assert s.cors_origins == ["*"]

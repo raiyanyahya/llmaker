@@ -67,7 +67,7 @@ func newUpCmd(app *App) *cobra.Command {
 	f.StringVar(&opts.image, "image", "", "override the backend image (advanced)")
 	f.StringVar(&opts.apiKey, "api-key", "", "require this bearer token on the facade")
 	f.StringVar(&opts.keepAlive, "keep-alive", "", "how long to keep models in (V)RAM, e.g. 10m")
-	f.StringVar(&opts.cors, "cors", "", "allowed CORS origins (default: *)")
+	f.StringVar(&opts.cors, "cors", "", "allowed CORS origins, comma-separated (default: none; use '*' to allow all)")
 	f.BoolVar(&opts.noPull, "no-pull", false, "don't preload the model after boot")
 	f.DurationVar(&opts.healthTimeout, "timeout", 90*time.Second, "how long to wait for the facade to become healthy")
 	f.BoolVar(&forceWizard, "wizard", false, "force the interactive wizard")
