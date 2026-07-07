@@ -1,6 +1,6 @@
 <div align="center">
 
-# llmaker
+# 🦙 llmaker
 
 ### Self-host the modern LLM stack.
 
