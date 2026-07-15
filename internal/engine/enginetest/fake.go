@@ -79,6 +79,10 @@ func (f *Fake) Create(ctx context.Context, spec engine.Spec) (engine.Instance, e
 	if host == "" {
 		host = "127.0.0.1"
 	}
+	gpus := strings.Join(spec.GPUIDs, ",")
+	if gpus == "" && spec.GPU {
+		gpus = "all"
+	}
 	in := &engine.Instance{
 		ID:      strings.Repeat("0", 8) + itoa(f.nextID),
 		Name:    spec.Name,
@@ -92,6 +96,7 @@ func (f *Fake) Create(ctx context.Context, spec engine.Spec) (engine.Instance, e
 		Created: time.Now(),
 		Runtime: engine.RuntimeContainer,
 		Network: spec.Network,
+		GPUs:    gpus,
 	}
 	if spec.Network != "" {
 		f.networks[spec.Network] = true

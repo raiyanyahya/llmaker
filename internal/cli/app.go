@@ -56,6 +56,11 @@ type App struct {
 	// nil it defaults to a TCP dial (waitPortReady).
 	ServiceReady func(ctx context.Context, host string, port int, timeout time.Duration) error
 
+	// GPUCount probes how many NVIDIA GPUs the host exposes. Injectable so
+	// tests can simulate a GPU box; when nil it defaults to an nvidia-smi
+	// probe (detectGPUCount). Probed lazily, only when a GPU is requested.
+	GPUCount func() int
+
 	// forceNoColor is toggled by the global --no-color flag.
 	forceNoColor bool
 }

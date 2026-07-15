@@ -35,6 +35,10 @@ const (
 	// the shared llmaker network), so `ls` and network GC can see the boundary
 	// without inspecting Docker's network attachments.
 	LabelNetwork = "llmaker.network"
+	// LabelGPUs records the instance's GPU reservation — "all" or a comma list
+	// of device ids — so the allocator can account existing claims from labels
+	// alone. Absent when the instance reserved no GPUs (or predates the label).
+	LabelGPUs = "llmaker.gpus"
 
 	// LabelType distinguishes an LLM instance from an infrastructure service.
 	// It is absent on instances created before services existed, which is why
@@ -94,6 +98,11 @@ func SpecLabels(s Spec, image string, port int) map[string]string {
 	}
 	if s.Network != "" {
 		m[LabelNetwork] = s.Network
+	}
+	if len(s.GPUIDs) > 0 {
+		m[LabelGPUs] = strings.Join(s.GPUIDs, ",")
+	} else if s.GPU {
+		m[LabelGPUs] = "all"
 	}
 	return m
 }
@@ -158,6 +167,7 @@ func InstanceFromLabels(id string, state State, labels map[string]string) Instan
 		Stack:   labels[LabelStack],
 		Auth:    labels[LabelAuth],
 		Network: labels[LabelNetwork],
+		GPUs:    labels[LabelGPUs],
 	}
 	if inst.Runtime == "" {
 		inst.Runtime = RuntimeContainer

@@ -75,6 +75,26 @@ func TestNetworkLabelRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGPULabelRoundTrip(t *testing.T) {
+	// Resolved device ids round-trip through labels; the legacy all-GPUs bool
+	// records "all"; no request leaves the label absent.
+	part := SpecLabels(Spec{Name: "a", GPUIDs: []string{"0", "2"}}, "img", 1)
+	if part[LabelGPUs] != "0,2" {
+		t.Errorf("LabelGPUs = %q, want %q", part[LabelGPUs], "0,2")
+	}
+	if in := InstanceFromLabels("id", StateRunning, part); in.GPUs != "0,2" {
+		t.Errorf("Instance.GPUs = %q, want %q", in.GPUs, "0,2")
+	}
+	all := SpecLabels(Spec{Name: "a", GPU: true}, "img", 1)
+	if all[LabelGPUs] != "all" {
+		t.Errorf("all-GPUs LabelGPUs = %q, want %q", all[LabelGPUs], "all")
+	}
+	none := SpecLabels(Spec{Name: "a"}, "img", 1)
+	if _, ok := none[LabelGPUs]; ok {
+		t.Error("no-GPU spec must not carry LabelGPUs")
+	}
+}
+
 func TestSpecLabelsAuth(t *testing.T) {
 	// The auth label mirrors the facade's semantics: a blank/whitespace key is
 	// no key at all. It lets lifecycle commands re-warn about public keyless

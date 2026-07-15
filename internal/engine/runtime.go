@@ -42,7 +42,14 @@ type Spec struct {
 	Image   string
 	Memory  int64 // bytes; 0 means "no limit"
 	CPUs    float64
-	GPU     bool
+	GPU     bool // reserve ALL host GPUs (legacy switch; same as GPUs: "all")
+	// GPUs is the raw GPU request ("all", a count, or device ids — see
+	// GPURequest). The CLI resolves it against the host inventory into GPUIDs
+	// (or GPU=true) before Create; runtimes ignore an unresolved request.
+	GPUs string
+	// GPUIDs are the exact devices to reserve, resolved by GPUAllocator. When
+	// set, the container sees only these GPUs.
+	GPUIDs  []string
 	Port    int    // host port; 0 means "auto-allocate"
 	Host    string // host bind address; defaults to 127.0.0.1
 	Env     map[string]string

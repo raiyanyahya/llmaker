@@ -31,6 +31,57 @@ func TestStackNameThreadsToSpecs(t *testing.T) {
 	}
 }
 
+func TestGPURequestLowering(t *testing.T) {
+	doc := "defaults:\n  gpus: 1\ninstances:\n" +
+		"  - name: a\n    model: m\n" + // inherits defaults gpus: 1
+		"  - name: b\n    model: m\n    gpus: \"0,1\"\n" + // explicit ids
+		"  - name: c\n    model: m\n    gpu: true\n" + // legacy all, overrides default
+		"  - name: d\n    model: m\n    gpu: false\n" // opts out of the default
+	f, err := Parse([]byte(doc))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	specs, err := f.ToSpecs()
+	if err != nil {
+		t.Fatalf("ToSpecs: %v", err)
+	}
+	byName := map[string]engine.Spec{}
+	for _, s := range specs {
+		byName[s.Name] = s
+	}
+	if s := byName["a"]; s.GPUs != "1" || s.GPU {
+		t.Errorf("a: GPUs=%q GPU=%v, want inherited count request %q", s.GPUs, s.GPU, "1")
+	}
+	if s := byName["b"]; s.GPUs != "0,1" || s.GPU {
+		t.Errorf("b: GPUs=%q GPU=%v, want explicit ids %q", s.GPUs, s.GPU, "0,1")
+	}
+	if s := byName["c"]; !s.GPU || s.GPUs != "" {
+		t.Errorf("c: GPUs=%q GPU=%v, want legacy all-GPUs bool", s.GPUs, s.GPU)
+	}
+	if s := byName["d"]; s.GPU || s.GPUs != "" {
+		t.Errorf("d: GPUs=%q GPU=%v, want no GPU (explicit opt-out)", s.GPUs, s.GPU)
+	}
+}
+
+func TestGPURequestValidation(t *testing.T) {
+	// gpu and gpus together on one level is ambiguous.
+	f, err := Parse([]byte("instances:\n  - name: a\n    model: m\n    gpu: true\n    gpus: 2\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := f.ToSpecs(); err == nil {
+		t.Fatal("expected gpu+gpus on one instance to be rejected")
+	}
+	// Malformed requests fail at parse time, not at apply time.
+	f, err = Parse([]byte("instances:\n  - name: a\n    model: m\n    gpus: \"-3\"\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := f.ToSpecs(); err == nil {
+		t.Fatal("expected invalid gpus value to be rejected")
+	}
+}
+
 func TestNetworkBoundaryThreadsToSpecs(t *testing.T) {
 	doc := "network: RagNet\ninstances:\n" +
 		"  - name: chat\n    model: m\n" +

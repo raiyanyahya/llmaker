@@ -27,6 +27,9 @@ instances:
     cpus: "2"
 
   # A larger model pinned to a fixed port, GPU-accelerated (Linux + NVIDIA).
+  # `gpu: true` reserves ALL GPUs; on a multi-GPU host prefer an exclusive
+  # partition instead: `gpus: 2` (any two free) or `gpus: "0,1"` (exactly
+  # these). apply admits the whole file's GPU demand as a unit.
   - name: big
     model: llama3:70b
     memory: 48g

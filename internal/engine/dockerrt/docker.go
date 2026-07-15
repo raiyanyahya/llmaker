@@ -423,7 +423,17 @@ func resources(spec engine.Spec) container.Resources {
 	if spec.CPUs > 0 {
 		res.NanoCPUs = int64(spec.CPUs * 1e9)
 	}
-	if spec.GPU {
+	switch {
+	case len(spec.GPUIDs) > 0:
+		// An exclusive partition: the container sees only these devices (the
+		// NVIDIA toolkit scopes NVIDIA_VISIBLE_DEVICES, so the facade's GPU
+		// metrics are scoped to the partition too).
+		res.DeviceRequests = []container.DeviceRequest{{
+			Driver:       "nvidia",
+			DeviceIDs:    spec.GPUIDs,
+			Capabilities: [][]string{{"gpu"}},
+		}}
+	case spec.GPU:
 		res.DeviceRequests = []container.DeviceRequest{{
 			Driver:       "nvidia",
 			Count:        -1, // all GPUs

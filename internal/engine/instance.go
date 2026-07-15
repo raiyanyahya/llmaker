@@ -44,6 +44,7 @@ type Instance struct {
 	Stack   string // the named stack this resource belongs to (empty if standalone)
 	Auth    string // AuthKey / AuthNone from LabelAuth ("" on pre-label instances)
 	Network string // logical group network ("" = the shared llmaker network)
+	GPUs    string // GPU reservation from LabelGPUs: "all", "0,1", or "" (none)
 }
 
 // URL is the base address of the instance's facade as reachable from this host.

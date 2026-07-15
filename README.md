@@ -439,7 +439,8 @@ no local state file to drift out of sync. Model facades and the agent are Python
 | Setting | Where | Default |
 |---|---|---|
 | backend / model | `--backend` · `--model` · `stack.yaml` | `ollama` · backend default |
-| memory · cpus · gpu | flags · `stack.yaml` | host-derived |
+| memory · cpus | flags · `stack.yaml` | host-derived |
+| GPUs | `--gpu` (all) · `--gpus all\|N\|ids` · `gpus:` in `stack.yaml` | none; counted/id reservations are exclusive |
 | port · host | `--port` · `--host` | auto · `127.0.0.1` |
 | network boundary | `--network` · `network:` in the stack file | shared `llmaker-net` |
 | service environment | `service add --env` · `env:` in `stack.yaml` | per-service defaults |
@@ -470,8 +471,32 @@ rotate them before exposing a stack beyond localhost.
 ## Hardware & images
 
 Docker on macOS cannot pass through the Apple GPU; a containerized engine runs
-CPU-only. `llmaker doctor` detects and reports this. On Linux with NVIDIA, `--gpu`
-reserves GPUs via the NVIDIA Container Toolkit.
+CPU-only. `llmaker doctor` detects and reports this. On Linux with NVIDIA, GPUs
+are reserved via the NVIDIA Container Toolkit.
+
+**GPU allocation.** On a multi-GPU box you can partition GPUs between instances
+instead of handing everything to one container:
+
+```bash
+llmaker up chat --gpus 1        # any one free GPU (exclusive)
+llmaker up big  --gpus 0,1      # exactly these devices
+llmaker up solo --gpu           # all GPUs (same as --gpus all)
+```
+
+```yaml
+# stack.yaml — gpus: "all", a count, or device ids; per-instance overrides defaults
+instances:
+  - { name: chat,  model: llama3:8b,  gpus: 1 }
+  - { name: coder, model: qwen3-coder, gpus: 1 }
+```
+
+Reservations are **exclusive** and tracked on container labels: counted requests
+(`gpus: 1`) are placed on free devices automatically, explicit ids fail loudly
+if another instance holds them, and each container sees only its partition — so
+its `/metrics` GPU gauges are scoped to its own devices. `llmaker apply` admits
+a stack's GPU demand **as a unit** (gang admission): if the whole file doesn't
+fit the free GPUs, nothing is created rather than half a stack. `ls --json`
+reports each instance's reservation under `gpus`.
 
 | Image | Size | Use |
 |---|---|---|

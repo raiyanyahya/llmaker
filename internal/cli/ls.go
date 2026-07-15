@@ -45,6 +45,7 @@ type instanceJSON struct {
 	Image   string `json:"image"`
 	Runtime string `json:"runtime"`
 	Network string `json:"network,omitempty"` // group network ("" = shared)
+	GPUs    string `json:"gpus,omitempty"`    // GPU reservation: "all" or ids
 }
 
 func runLs(ctx context.Context, app *App, opts lsOptions) error {
@@ -69,7 +70,7 @@ func runLs(ctx context.Context, app *App, opts lsOptions) error {
 				Name: in.Name, Backend: string(in.Backend), Model: in.Model,
 				State: string(in.State), Health: healthLabel(in.Health),
 				Port: in.Port, URL: in.URL(), Image: in.Image, Runtime: string(in.Runtime),
-				Network: in.Network,
+				Network: in.Network, GPUs: in.GPUs,
 			})
 		}
 		enc := json.NewEncoder(io.Out)

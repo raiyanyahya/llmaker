@@ -72,14 +72,28 @@ type Service struct {
 	Network string            `yaml:"network"` // overrides the file-level network
 }
 
+// GPUSpec accepts the `gpus:` YAML scalar — a count (2), "all", or device ids
+// ("0,1") — keeping its literal form for engine.ParseGPURequest.
+type GPUSpec string
+
+// UnmarshalYAML accepts any scalar (so `gpus: 2` needs no quotes).
+func (g *GPUSpec) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.ScalarNode {
+		return fmt.Errorf("gpus must be a scalar: \"all\", a count, or device ids like \"0,1\"")
+	}
+	*g = GPUSpec(value.Value)
+	return nil
+}
+
 // Defaults are applied to any instance that omits a field.
 type Defaults struct {
-	Backend string `yaml:"backend"`
-	Model   string `yaml:"model"`
-	Memory  string `yaml:"memory"`
-	CPUs    string `yaml:"cpus"`
-	GPU     *bool  `yaml:"gpu"`
-	Host    string `yaml:"host"`
+	Backend string  `yaml:"backend"`
+	Model   string  `yaml:"model"`
+	Memory  string  `yaml:"memory"`
+	CPUs    string  `yaml:"cpus"`
+	GPU     *bool   `yaml:"gpu"`
+	GPUs    GPUSpec `yaml:"gpus"` // "all", a count, or device ids
+	Host    string  `yaml:"host"`
 }
 
 // Instance is one declared server.
@@ -90,11 +104,33 @@ type Instance struct {
 	Memory  string            `yaml:"memory"`
 	CPUs    string            `yaml:"cpus"`
 	GPU     *bool             `yaml:"gpu"`
+	GPUs    GPUSpec           `yaml:"gpus"` // "all", a count, or device ids
 	Port    int               `yaml:"port"`
 	Host    string            `yaml:"host"`
 	Image   string            `yaml:"image"`
 	Env     map[string]string `yaml:"env"`
 	Network string            `yaml:"network"` // overrides the file-level network
+}
+
+// resolveGPUs picks an instance's effective GPU request. The instance's own
+// gpu/gpus settings win over defaults as a unit (so `gpu: false` on an
+// instance disables an inherited default); within one level `gpu:` and `gpus:`
+// are mutually exclusive. Returns the raw request for engine.ParseGPURequest
+// plus the legacy all-GPUs bool.
+func resolveGPUs(in Instance, d Defaults) (request string, all bool, err error) {
+	pick := func(gpus GPUSpec, gpu *bool) (string, bool, error) {
+		if gpus != "" && gpu != nil {
+			return "", false, fmt.Errorf("use either gpu or gpus, not both")
+		}
+		if gpus != "" {
+			return string(gpus), false, nil
+		}
+		return "", gpu != nil && *gpu, nil
+	}
+	if in.GPUs != "" || in.GPU != nil {
+		return pick(in.GPUs, in.GPU)
+	}
+	return pick(d.GPUs, d.GPU)
 }
 
 // Load reads and parses an llm.yaml file from disk.
@@ -158,6 +194,16 @@ func (f *File) ToSpecs() ([]engine.Spec, error) {
 			return nil, fmt.Errorf("instance %q: %w", name, err)
 		}
 
+		gpuReq, gpuAll, err := resolveGPUs(in, f.Defaults)
+		if err != nil {
+			return nil, fmt.Errorf("instance %q: %w", name, err)
+		}
+		// Validate the request syntax here so a typo fails at parse time; the
+		// resolution to concrete devices happens in apply's admission pass.
+		if _, perr := engine.ParseGPURequest(gpuReq); perr != nil {
+			return nil, fmt.Errorf("instance %q: %w", name, perr)
+		}
+
 		spec := engine.Spec{
 			Name:    name,
 			Backend: b.Kind,
@@ -165,7 +211,8 @@ func (f *File) ToSpecs() ([]engine.Spec, error) {
 			Image:   firstNonEmpty(in.Image, b.Image),
 			Port:    in.Port,
 			Host:    firstNonEmpty(in.Host, f.Defaults.Host, "127.0.0.1"),
-			GPU:     resolveBool(in.GPU, f.Defaults.GPU, false),
+			GPU:     gpuAll,
+			GPUs:    gpuReq,
 			Env:     in.Env,
 			Runtime: engine.RuntimeContainer,
 			Stack:   stack,

@@ -184,6 +184,85 @@ func TestFacadeEnv(t *testing.T) {
 	}
 }
 
+func TestRunUpAllocatesGPUs(t *testing.T) {
+	app, rt, _, _ := testApp(t)
+	app.GPUCount = func() int { return 2 } // simulate a 2-GPU box
+
+	// First instance takes GPU 0, the second GPU 1, the third finds none free.
+	names := []string{"gpu-a", "gpu-b"}
+	for i, want := range []string{"0", "1"} {
+		name := names[i]
+		opts := upOptions{name: name, backendName: "ollama", gpus: "1", healthTimeout: time.Second}
+		if err := runUp(context.Background(), app, opts, false); err != nil {
+			t.Fatalf("runUp %s: %v", name, err)
+		}
+		in, _ := rt.Get(context.Background(), name)
+		if in.GPUs != want {
+			t.Errorf("%s GPUs = %q, want %q", name, in.GPUs, want)
+		}
+	}
+	err := runUp(context.Background(), app, upOptions{name: "third", backendName: "ollama", gpus: "1", healthTimeout: time.Second}, false)
+	if err == nil || !strings.Contains(err.Error(), "0 of 2 are free") {
+		t.Fatalf("expected GPU shortfall error, got %v", err)
+	}
+	if _, gerr := rt.Get(context.Background(), "third"); gerr == nil {
+		t.Error("failed allocation must not create an instance")
+	}
+}
+
+func TestRunUpGPUAndGPUsConflict(t *testing.T) {
+	app, _, _, _ := testApp(t)
+	err := runUp(context.Background(), app, upOptions{name: "x", backendName: "ollama", gpu: true, gpus: "1", healthTimeout: time.Second}, false)
+	if err == nil || !strings.Contains(err.Error(), "either --gpu or --gpus") {
+		t.Fatalf("expected flag-conflict error, got %v", err)
+	}
+}
+
+func TestApplyGangAdmissionForGPUs(t *testing.T) {
+	app, rt, _, _ := testApp(t)
+	app.GPUCount = func() int { return 2 }
+	dir := t.TempDir()
+	path := dir + "/llm.yaml"
+
+	// Demand (3) exceeds supply (2): the stack must be rejected as a unit,
+	// with nothing created — including the instance that would have fit.
+	over := "instances:\n" +
+		"  - name: fits\n    model: m\n    gpus: 2\n" +
+		"  - name: doesnt\n    model: m\n    gpus: 1\n"
+	if err := writeFile(path, over); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	err := runApply(context.Background(), app, applyOptions{file: path})
+	if err == nil || !strings.Contains(err.Error(), "nothing was created") {
+		t.Fatalf("expected gang-admission failure, got %v", err)
+	}
+	if ins, _ := rt.List(context.Background()); len(ins) != 0 {
+		t.Fatalf("gang rejection must create nothing, found %d instances", len(ins))
+	}
+
+	// A stack that fits gets disjoint exclusive partitions.
+	ok := "instances:\n" +
+		"  - name: a\n    model: m\n    gpus: 1\n" +
+		"  - name: b\n    model: m\n    gpus: 1\n"
+	if err := writeFile(path, ok); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := runApply(context.Background(), app, applyOptions{file: path}); err != nil {
+		t.Fatalf("runApply: %v", err)
+	}
+	a, _ := rt.Get(context.Background(), "a")
+	b, _ := rt.Get(context.Background(), "b")
+	if a.GPUs == b.GPUs || a.GPUs == "" || b.GPUs == "" {
+		t.Errorf("want disjoint partitions, got a=%q b=%q", a.GPUs, b.GPUs)
+	}
+
+	// Re-applying is idempotent: existing members keep their reservation and
+	// are not double-counted against the free set.
+	if err := runApply(context.Background(), app, applyOptions{file: path}); err != nil {
+		t.Fatalf("re-apply: %v", err)
+	}
+}
+
 func TestRunUpWithNetworkGroup(t *testing.T) {
 	app, rt, _, _ := testApp(t)
 	opts := upOptions{

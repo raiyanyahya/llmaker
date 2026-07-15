@@ -78,6 +78,14 @@ func runApply(ctx context.Context, app *App, opts applyOptions) error {
 	}
 	used := usedPorts(existing, existingServices)
 
+	// Gang admission for GPUs: resolve every new member's request against one
+	// shared allocator BEFORE anything is provisioned, so a stack whose GPU
+	// demand doesn't fit is rejected as a unit instead of coming up partially.
+	// Existing instances keep the reservations recorded on their labels.
+	if err := admitGPUs(app, specs, byName, existing); err != nil {
+		return fmt.Errorf("GPU admission for %s failed (nothing was created): %w", opts.file, err)
+	}
+
 	io := app.IO
 	t := io.Theme
 	var errs []error
