@@ -68,6 +68,7 @@ func newUpCmd(app *App) *cobra.Command {
 	f.StringVar(&opts.apiKey, "api-key", "", "require this bearer token on the facade")
 	f.StringVar(&opts.keepAlive, "keep-alive", "", "how long to keep models in (V)RAM, e.g. 10m")
 	f.StringVar(&opts.cors, "cors", "", "allowed CORS origins, comma-separated (default: none; use '*' to allow all)")
+	f.StringVar(&opts.network, "network", "", "join a private group network; same name = same group, isolated from the rest (default: the shared llmaker-net)")
 	f.BoolVar(&opts.noPull, "no-pull", false, "don't preload the model after boot")
 	f.DurationVar(&opts.healthTimeout, "timeout", 90*time.Second, "how long to wait for the facade to become healthy")
 	f.BoolVar(&forceWizard, "wizard", false, "force the interactive wizard")
@@ -88,6 +89,7 @@ type upOptions struct {
 	apiKey        string
 	keepAlive     string
 	cors          string
+	network       string
 	noPull        bool
 	healthTimeout time.Duration
 }
@@ -151,6 +153,11 @@ func runUp(ctx context.Context, app *App, opts upOptions, useWizard bool) error 
 
 	host := firstNonEmpty(opts.host, "127.0.0.1")
 
+	netName := engine.NormalizeName(opts.network)
+	if netName != "" && !engine.ValidName(netName) {
+		return fmt.Errorf("invalid network name %q (use lowercase letters, digits, - or _)", opts.network)
+	}
+
 	// Resolve resources.
 	mem, err := resolveMemory(opts.memory, app.Host)
 	if err != nil {
@@ -173,6 +180,7 @@ func runUp(ctx context.Context, app *App, opts upOptions, useWizard bool) error 
 		Host:    host,
 		Runtime: engine.RuntimeContainer,
 		Env:     upEnv(opts),
+		Network: netName,
 	}
 
 	io := app.IO

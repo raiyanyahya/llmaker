@@ -18,8 +18,14 @@ import (
 
 // File is the root of an llm.yaml document.
 type File struct {
-	Version   string     `yaml:"version"`
-	Name      string     `yaml:"name"` // optional stack name; scopes `apply --prune`
+	Version string `yaml:"version"`
+	Name    string `yaml:"name"` // optional stack name; scopes `apply --prune`
+	// Network is an optional boundary: every container in the file joins this
+	// private group network instead of the shared llmaker one, so the stack's
+	// members resolve each other by name while nothing outside the group can
+	// reach them. Two files declaring the same network share one boundary.
+	// Per-instance/per-service `network:` overrides this default.
+	Network   string     `yaml:"network"`
 	Defaults  Defaults   `yaml:"defaults"`
 	Instances []Instance `yaml:"instances"`
 	Services  []Service  `yaml:"services"`
@@ -41,16 +47,29 @@ func (f *File) validStack() (string, error) {
 	return name, nil
 }
 
+// resolveNetwork normalizes and validates a group-network name, falling back to
+// the file-level `network:`. Empty means the shared llmaker network (it becomes
+// part of a Docker network name and a label value, hence the identifier rules).
+func (f *File) resolveNetwork(override string) (string, error) {
+	raw := firstNonEmpty(override, f.Network)
+	name := engine.NormalizeName(raw)
+	if name != "" && !engine.ValidName(name) {
+		return "", fmt.Errorf("invalid network name %q (use lowercase letters, digits, - or _)", raw)
+	}
+	return name, nil
+}
+
 // Service is one declared infrastructure service (resolved against the catalog).
 type Service struct {
-	Name   string            `yaml:"name"`
-	Use    string            `yaml:"use"` // catalog kind (qdrant, redis, …)
-	Port   int               `yaml:"port"`
-	Host   string            `yaml:"host"`
-	Image  string            `yaml:"image"`
-	Memory string            `yaml:"memory"`
-	CPUs   string            `yaml:"cpus"`
-	Env    map[string]string `yaml:"env"`
+	Name    string            `yaml:"name"`
+	Use     string            `yaml:"use"` // catalog kind (qdrant, redis, …)
+	Port    int               `yaml:"port"`
+	Host    string            `yaml:"host"`
+	Image   string            `yaml:"image"`
+	Memory  string            `yaml:"memory"`
+	CPUs    string            `yaml:"cpus"`
+	Env     map[string]string `yaml:"env"`
+	Network string            `yaml:"network"` // overrides the file-level network
 }
 
 // Defaults are applied to any instance that omits a field.
@@ -75,6 +94,7 @@ type Instance struct {
 	Host    string            `yaml:"host"`
 	Image   string            `yaml:"image"`
 	Env     map[string]string `yaml:"env"`
+	Network string            `yaml:"network"` // overrides the file-level network
 }
 
 // Load reads and parses an llm.yaml file from disk.
@@ -133,6 +153,11 @@ func (f *File) ToSpecs() ([]engine.Spec, error) {
 
 		model := firstNonEmpty(in.Model, f.Defaults.Model, b.DefaultModel)
 
+		netName, err := f.resolveNetwork(in.Network)
+		if err != nil {
+			return nil, fmt.Errorf("instance %q: %w", name, err)
+		}
+
 		spec := engine.Spec{
 			Name:    name,
 			Backend: b.Kind,
@@ -144,6 +169,7 @@ func (f *File) ToSpecs() ([]engine.Spec, error) {
 			Env:     in.Env,
 			Runtime: engine.RuntimeContainer,
 			Stack:   stack,
+			Network: netName,
 		}
 
 		memStr := firstNonEmpty(in.Memory, f.Defaults.Memory)
@@ -225,6 +251,11 @@ func (f *File) ToServiceSpecs() ([]engine.ServiceSpec, error) {
 			})
 		}
 
+		netName, err := f.resolveNetwork(s.Network)
+		if err != nil {
+			return nil, fmt.Errorf("service %q: %w", name, err)
+		}
+
 		spec := engine.ServiceSpec{
 			Name:     name,
 			Service:  cat.Kind,
@@ -235,6 +266,7 @@ func (f *File) ToServiceSpecs() ([]engine.ServiceSpec, error) {
 			Env:      mergeServiceEnv(cat.Env, s.Env),
 			Volumes:  volumes,
 			Stack:    stack,
+			Network:  netName,
 		}
 
 		if s.Memory != "" {

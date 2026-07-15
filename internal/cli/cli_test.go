@@ -184,6 +184,88 @@ func TestFacadeEnv(t *testing.T) {
 	}
 }
 
+func TestRunUpWithNetworkGroup(t *testing.T) {
+	app, rt, _, _ := testApp(t)
+	opts := upOptions{
+		name: "grouped", backendName: "ollama", network: "MyApp",
+		healthTimeout: time.Second,
+	}
+	if err := runUp(context.Background(), app, opts, false); err != nil {
+		t.Fatalf("runUp: %v", err)
+	}
+	in, err := rt.Get(context.Background(), "grouped")
+	if err != nil {
+		t.Fatalf("instance not created: %v", err)
+	}
+	if in.Network != "myapp" {
+		t.Errorf("Network = %q, want normalized %q", in.Network, "myapp")
+	}
+}
+
+func TestRunUpRejectsInvalidNetwork(t *testing.T) {
+	app, _, _, _ := testApp(t)
+	opts := upOptions{name: "x", backendName: "ollama", network: "bad net!", healthTimeout: time.Second}
+	err := runUp(context.Background(), app, opts, false)
+	if err == nil || !strings.Contains(err.Error(), "invalid network name") {
+		t.Fatalf("expected invalid-network error, got %v", err)
+	}
+}
+
+func TestRmSweepsEmptyGroupNetworks(t *testing.T) {
+	app, _, _, out := testApp(t)
+	for _, name := range []string{"one", "two"} {
+		opts := upOptions{name: name, backendName: "ollama", network: "myapp", healthTimeout: time.Second}
+		if err := runUp(context.Background(), app, opts, false); err != nil {
+			t.Fatalf("runUp %s: %v", name, err)
+		}
+	}
+
+	// Removing one member leaves the network alive for the other.
+	out.Reset()
+	if err := runRm(context.Background(), app, []string{"one"}, true); err != nil {
+		t.Fatalf("rm one: %v", err)
+	}
+	if strings.Contains(out.String(), "removed empty network") {
+		t.Errorf("network swept while still in use:\n%s", out.String())
+	}
+
+	// Removing the last member sweeps the now-empty network.
+	out.Reset()
+	if err := runRm(context.Background(), app, []string{"two"}, true); err != nil {
+		t.Fatalf("rm two: %v", err)
+	}
+	if !strings.Contains(out.String(), "removed empty network myapp") {
+		t.Errorf("expected empty-network sweep in output:\n%s", out.String())
+	}
+}
+
+func TestApplyThreadsNetworkBoundary(t *testing.T) {
+	app, rt, _, _ := testApp(t)
+	dir := t.TempDir()
+	path := dir + "/llm.yaml"
+	doc := "name: rag\nnetwork: rag\ninstances:\n  - name: chat\n    model: m\nservices:\n  - use: qdrant\n"
+	if err := writeFile(path, doc); err != nil {
+		t.Fatalf("write llm.yaml: %v", err)
+	}
+	if err := runApply(context.Background(), app, applyOptions{file: path}); err != nil {
+		t.Fatalf("runApply: %v", err)
+	}
+	in, err := rt.Get(context.Background(), "chat")
+	if err != nil {
+		t.Fatalf("instance not created: %v", err)
+	}
+	if in.Network != "rag" {
+		t.Errorf("instance Network = %q, want %q", in.Network, "rag")
+	}
+	svc, err := rt.GetService(context.Background(), "qdrant")
+	if err != nil {
+		t.Fatalf("service not created: %v", err)
+	}
+	if svc.Network != "rag" {
+		t.Errorf("service Network = %q, want %q", svc.Network, "rag")
+	}
+}
+
 func TestIsLoopbackHost(t *testing.T) {
 	cases := map[string]bool{
 		"":            true, // engine defaults empty host to 127.0.0.1

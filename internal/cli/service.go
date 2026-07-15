@@ -81,6 +81,7 @@ type serviceAddOptions struct {
 	memory  string
 	cpus    float64
 	env     map[string]string
+	network string
 	noWait  bool
 	timeout time.Duration
 }
@@ -110,6 +111,7 @@ func newServiceAddCmd(app *App) *cobra.Command {
 	f.StringVar(&opts.memory, "memory", "", "memory limit, e.g. 2g")
 	f.Float64Var(&opts.cpus, "cpus", 0, "CPU quota")
 	f.StringToStringVar(&opts.env, "env", nil, "extra env vars (repeatable), e.g. --env KEY=VALUE")
+	f.StringVar(&opts.network, "network", "", "join a private group network; same name = same group, isolated from the rest (default: the shared llmaker-net)")
 	f.BoolVar(&opts.noWait, "no-wait", false, "don't wait for the service to accept connections")
 	f.DurationVar(&opts.timeout, "timeout", serviceHealthTimeout, "how long to wait for readiness")
 	return cmd
@@ -145,6 +147,12 @@ func runServiceAdd(ctx context.Context, app *App, kind string, opts serviceAddOp
 	}
 
 	host := firstNonEmpty(opts.host, "127.0.0.1")
+
+	netName := engine.NormalizeName(opts.network)
+	if netName != "" && !engine.ValidName(netName) {
+		return fmt.Errorf("invalid network name %q (use lowercase letters, digits, - or _)", opts.network)
+	}
+
 	used := usedPorts(instances, services)
 	ports, err := allocateServicePorts(cat, opts.port, used)
 	if err != nil {
@@ -167,6 +175,7 @@ func runServiceAdd(ctx context.Context, app *App, kind string, opts serviceAddOp
 		Volumes:  serviceVolumes(name, cat),
 		Memory:   mem,
 		CPUs:     opts.cpus,
+		Network:  netName,
 	}
 
 	io := app.IO
@@ -238,9 +247,16 @@ func newServiceRmCmd(app *App) *cobra.Command {
 		Short: "Remove services (and their data volumes)",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return forEachService(cmd.Context(), app, args, "Removing", func(ctx context.Context, rt engine.Runtime, name string) error {
+			err := forEachService(cmd.Context(), app, args, "Removing", func(ctx context.Context, rt engine.Runtime, name string) error {
 				return rt.Remove(ctx, name, force)
 			})
+			// forEachService scopes its runtime handle, so open a short-lived
+			// one for the sweep of now-empty group networks.
+			if rt, cleanup, rerr := app.runtime(cmd.Context()); rerr == nil {
+				gcNetworks(cmd.Context(), app, rt)
+				cleanup()
+			}
+			return err
 		},
 	}
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "remove even if running")
@@ -454,6 +470,7 @@ type serviceJSON struct {
 	Endpoint string `json:"endpoint"`
 	URL      string `json:"url"`
 	Image    string `json:"image"`
+	Network  string `json:"network,omitempty"` // group network ("" = shared)
 }
 
 func servicesJSON(svcs []engine.Service) []serviceJSON {
@@ -463,6 +480,7 @@ func servicesJSON(svcs []engine.Service) []serviceJSON {
 			Name: s.Name, Service: s.Kind, Category: s.Category,
 			State: string(s.State), Health: healthLabel(s.Health),
 			Endpoint: s.Endpoint(), URL: s.URL(), Image: s.Image,
+			Network: s.Network,
 		})
 	}
 	return out

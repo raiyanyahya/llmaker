@@ -53,6 +53,28 @@ func TestSpecLabelsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestNetworkLabelRoundTrip(t *testing.T) {
+	// The group network must round-trip through labels for instances and
+	// services, and stay absent (not empty-valued) on shared-network containers
+	// so label-existence filters can select group networks only.
+	grouped := SpecLabels(Spec{Name: "a", Network: "rag"}, "img", 1)
+	if grouped[LabelNetwork] != "rag" {
+		t.Errorf("LabelNetwork = %q, want %q", grouped[LabelNetwork], "rag")
+	}
+	if in := InstanceFromLabels("id", StateRunning, grouped); in.Network != "rag" {
+		t.Errorf("Instance.Network = %q, want %q", in.Network, "rag")
+	}
+	shared := SpecLabels(Spec{Name: "a"}, "img", 1)
+	if _, ok := shared[LabelNetwork]; ok {
+		t.Error("shared-network spec must not carry LabelNetwork")
+	}
+
+	svcLabels := ServiceLabels(ServiceSpec{Name: "q", Network: "rag"})
+	if svc := ServiceFromLabels("id", StateRunning, svcLabels); svc.Network != "rag" {
+		t.Errorf("Service.Network = %q, want %q", svc.Network, "rag")
+	}
+}
+
 func TestSpecLabelsAuth(t *testing.T) {
 	// The auth label mirrors the facade's semantics: a blank/whitespace key is
 	// no key at all. It lets lifecycle commands re-warn about public keyless

@@ -26,9 +26,11 @@ import (
 	"github.com/raiyanyahya/llmaker/internal/engine"
 )
 
-// NetworkName is the shared user-defined bridge network every llmaker container
-// joins. On it Docker provides DNS by container alias, so an instance and a
-// service can reach each other by their llmaker name (e.g. "qdrant:6333").
+// NetworkName is the shared user-defined bridge network llmaker containers
+// join by default. On it Docker provides DNS by container alias, so an instance
+// and a service can reach each other by their llmaker name (e.g. "qdrant:6333").
+// Containers created with a group network join "llmaker-net-<group>" instead —
+// an isolated bridge that forms an app-stack boundary (see networkFor).
 const NetworkName = "llmaker-net"
 
 // Runtime implements engine.Runtime (and engine.ImagePuller) using Docker.
@@ -90,7 +92,7 @@ func (r *Runtime) Create(ctx context.Context, spec engine.Spec) (engine.Instance
 		Resources:     resources(spec),
 	}
 
-	netCfg, err := r.networkConfig(ctx, spec.Name)
+	netCfg, err := r.networkConfig(ctx, spec.Network, spec.Name)
 	if err != nil {
 		return engine.Instance{}, err
 	}
@@ -104,42 +106,87 @@ func (r *Runtime) Create(ctx context.Context, spec engine.Spec) (engine.Instance
 	return inst, nil
 }
 
-// ensureNetwork makes sure the shared llmaker network exists, creating it once.
+// networkFor maps a logical group name to its Docker network name. An empty
+// group means the shared network; groups get their own isolated bridge so a
+// stack (or any set of containers created with the same group) forms a
+// boundary: members resolve each other by name, outsiders can't reach them.
+func networkFor(group string) string {
+	if group == "" {
+		return NetworkName
+	}
+	return NetworkName + "-" + group
+}
+
+// ensureNetwork makes sure the group's network exists, creating it once.
 // It is safe to call concurrently-ish: a racing create that loses just reuses
 // the winner's network.
-func (r *Runtime) ensureNetwork(ctx context.Context) error {
-	if _, err := r.cli.NetworkInspect(ctx, NetworkName, network.InspectOptions{}); err == nil {
+func (r *Runtime) ensureNetwork(ctx context.Context, group string) error {
+	name := networkFor(group)
+	if _, err := r.cli.NetworkInspect(ctx, name, network.InspectOptions{}); err == nil {
 		return nil
 	}
 	key, val := engine.ManagedFilter()
-	_, err := r.cli.NetworkCreate(ctx, NetworkName, network.CreateOptions{
+	labels := map[string]string{key: val}
+	if group != "" {
+		// The logical name labels the network so PruneNetworks can find (and
+		// report) group networks without parsing Docker names.
+		labels[engine.LabelNetwork] = group
+	}
+	_, err := r.cli.NetworkCreate(ctx, name, network.CreateOptions{
 		Driver: "bridge",
-		Labels: map[string]string{key: val},
+		Labels: labels,
 	})
 	// Tolerate a concurrent creator having won the race.
 	if err != nil && !isAlreadyExists(err) {
-		return fmt.Errorf("create network %s: %w", NetworkName, err)
+		return fmt.Errorf("create network %s: %w", name, err)
 	}
 	return nil
 }
 
-// networkConfig ensures the network exists and returns the config that attaches
-// a new container to it under a DNS alias equal to its llmaker name, so peers
-// can resolve it by that short name.
-func (r *Runtime) networkConfig(ctx context.Context, name string) (*network.NetworkingConfig, error) {
-	if err := r.ensureNetwork(ctx); err != nil {
+// networkConfig ensures the group's network exists and returns the config that
+// attaches a new container to it under a DNS alias equal to its llmaker name,
+// so peers in the same group can resolve it by that short name.
+func (r *Runtime) networkConfig(ctx context.Context, group, name string) (*network.NetworkingConfig, error) {
+	if err := r.ensureNetwork(ctx, group); err != nil {
 		return nil, err
 	}
 	return &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			NetworkName: {Aliases: []string{name}},
+			networkFor(group): {Aliases: []string{name}},
 		},
 	}, nil
 }
 
+// PruneNetworks removes managed group networks that no longer have containers
+// attached, returning the logical names it removed. The shared llmaker network
+// is never touched (it carries no group label, so the filter excludes it).
+func (r *Runtime) PruneNetworks(ctx context.Context) ([]string, error) {
+	key, val := engine.ManagedFilter()
+	f := filters.NewArgs(
+		filters.Arg("label", key+"="+val),
+		filters.Arg("label", engine.LabelNetwork),
+	)
+	nets, err := r.cli.NetworkList(ctx, network.ListOptions{Filters: f})
+	if err != nil {
+		return nil, fmt.Errorf("list networks: %w", err)
+	}
+	var removed []string
+	for _, n := range nets {
+		// List doesn't populate attachments; inspect for the live view.
+		ins, err := r.cli.NetworkInspect(ctx, n.ID, network.InspectOptions{})
+		if err != nil || len(ins.Containers) > 0 {
+			continue
+		}
+		if err := r.cli.NetworkRemove(ctx, n.ID); err == nil {
+			removed = append(removed, n.Labels[engine.LabelNetwork])
+		}
+	}
+	return removed, nil
+}
+
 // CreateService provisions an infrastructure service container: its data
-// volumes, all its port bindings, llmaker labels, and attachment to the shared
-// network. It does not start the container.
+// volumes, all its port bindings, llmaker labels, and attachment to its group's
+// network (the shared one by default). It does not start the container.
 func (r *Runtime) CreateService(ctx context.Context, spec engine.ServiceSpec) (engine.Service, error) {
 	cname := engine.ContainerName(spec.Name)
 	labels := engine.ServiceLabels(spec)
@@ -177,7 +224,7 @@ func (r *Runtime) CreateService(ctx context.Context, spec engine.ServiceSpec) (e
 		Resources:     serviceResources(spec),
 	}
 
-	netCfg, err := r.networkConfig(ctx, spec.Name)
+	netCfg, err := r.networkConfig(ctx, spec.Network, spec.Name)
 	if err != nil {
 		return engine.Service{}, err
 	}

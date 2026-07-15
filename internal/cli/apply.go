@@ -158,6 +158,7 @@ func runApply(ctx context.Context, app *App, opts applyOptions) error {
 				pruned++
 			}
 		}
+		gcNetworks(ctx, app, rt)
 	}
 
 	io.Println()

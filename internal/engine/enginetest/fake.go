@@ -6,6 +6,7 @@ package enginetest
 import (
 	"context"
 	"io"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ type Fake struct {
 	instances map[string]*engine.Instance
 	services  map[string]*engine.Service
 	logs      map[string]string
+	networks  map[string]bool // group networks created on demand, like dockerrt
 
 	// PingErr, when set, makes Ping fail (simulating a down daemon).
 	PingErr error
@@ -34,6 +36,7 @@ func New() *Fake {
 		instances: map[string]*engine.Instance{},
 		services:  map[string]*engine.Service{},
 		logs:      map[string]string{},
+		networks:  map[string]bool{},
 	}
 }
 
@@ -88,6 +91,10 @@ func (f *Fake) Create(ctx context.Context, spec engine.Spec) (engine.Instance, e
 		Health:  engine.HealthUnknown,
 		Created: time.Now(),
 		Runtime: engine.RuntimeContainer,
+		Network: spec.Network,
+	}
+	if spec.Network != "" {
+		f.networks[spec.Network] = true
 	}
 	f.instances[spec.Name] = in
 	return *in, nil
@@ -169,9 +176,40 @@ func (f *Fake) CreateService(ctx context.Context, spec engine.ServiceSpec) (engi
 		State:    engine.StateCreated,
 		Health:   engine.HealthUnknown,
 		Created:  time.Now(),
+		Network:  spec.Network,
+	}
+	if spec.Network != "" {
+		f.networks[spec.Network] = true
 	}
 	f.services[spec.Name] = svc
 	return *svc, nil
+}
+
+// PruneNetworks mirrors dockerrt's network GC: group networks with no remaining
+// members are removed and their logical names returned, sorted for determinism.
+func (f *Fake) PruneNetworks(ctx context.Context) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	inUse := map[string]bool{}
+	for _, in := range f.instances {
+		if in.Network != "" {
+			inUse[in.Network] = true
+		}
+	}
+	for _, s := range f.services {
+		if s.Network != "" {
+			inUse[s.Network] = true
+		}
+	}
+	var removed []string
+	for n := range f.networks {
+		if !inUse[n] {
+			removed = append(removed, n)
+			delete(f.networks, n)
+		}
+	}
+	sort.Strings(removed)
+	return removed, nil
 }
 
 func (f *Fake) ListServices(ctx context.Context) ([]engine.Service, error) {

@@ -138,6 +138,7 @@ func runRm(ctx context.Context, app *App, names []string, force bool) error {
 			errs = append(errs, err)
 		}
 	}
+	gcNetworks(ctx, app, rt)
 	return joinErrs(errs)
 }
 

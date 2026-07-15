@@ -31,6 +31,10 @@ const (
 	// a public keyless bind on every boot without inspecting container env.
 	// Absent on instances created before the label existed.
 	LabelAuth = "llmaker.auth"
+	// LabelNetwork is the logical group network the container joined (absent =
+	// the shared llmaker network), so `ls` and network GC can see the boundary
+	// without inspecting Docker's network attachments.
+	LabelNetwork = "llmaker.network"
 
 	// LabelType distinguishes an LLM instance from an infrastructure service.
 	// It is absent on instances created before services existed, which is why
@@ -88,6 +92,9 @@ func SpecLabels(s Spec, image string, port int) map[string]string {
 	if s.Stack != "" {
 		m[LabelStack] = s.Stack
 	}
+	if s.Network != "" {
+		m[LabelNetwork] = s.Network
+	}
 	return m
 }
 
@@ -112,6 +119,9 @@ func ServiceLabels(s ServiceSpec) map[string]string {
 	}
 	if s.Stack != "" {
 		m[LabelStack] = s.Stack
+	}
+	if s.Network != "" {
+		m[LabelNetwork] = s.Network
 	}
 	return m
 }
@@ -147,6 +157,7 @@ func InstanceFromLabels(id string, state State, labels map[string]string) Instan
 		Runtime: RuntimeKind(labels[LabelRuntime]),
 		Stack:   labels[LabelStack],
 		Auth:    labels[LabelAuth],
+		Network: labels[LabelNetwork],
 	}
 	if inst.Runtime == "" {
 		inst.Runtime = RuntimeContainer
@@ -174,6 +185,7 @@ func ServiceFromLabels(id string, state State, labels map[string]string) Service
 		State:    state,
 		Health:   HealthUnknown,
 		Stack:    labels[LabelStack],
+		Network:  labels[LabelNetwork],
 	}
 	if ts, err := time.Parse(time.RFC3339, labels[LabelCreated]); err == nil {
 		svc.Created = ts

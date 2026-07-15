@@ -31,6 +31,62 @@ func TestStackNameThreadsToSpecs(t *testing.T) {
 	}
 }
 
+func TestNetworkBoundaryThreadsToSpecs(t *testing.T) {
+	doc := "network: RagNet\ninstances:\n" +
+		"  - name: chat\n    model: m\n" +
+		"  - name: solo\n    model: m\n    network: other\n" +
+		"services:\n  - use: qdrant\n"
+	f, err := Parse([]byte(doc))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	specs, err := f.ToSpecs()
+	if err != nil {
+		t.Fatalf("ToSpecs: %v", err)
+	}
+	byName := map[string]engine.Spec{}
+	for _, s := range specs {
+		byName[s.Name] = s
+	}
+	if got := byName["chat"].Network; got != "ragnet" {
+		t.Errorf("chat Network = %q, want file-level %q (normalized)", got, "ragnet")
+	}
+	if got := byName["solo"].Network; got != "other" {
+		t.Errorf("solo Network = %q, want per-instance override %q", got, "other")
+	}
+	svcs, err := f.ToServiceSpecs()
+	if err != nil {
+		t.Fatalf("ToServiceSpecs: %v", err)
+	}
+	if svcs[0].Network != "ragnet" {
+		t.Errorf("service Network = %q, want %q", svcs[0].Network, "ragnet")
+	}
+}
+
+func TestNoNetworkMeansShared(t *testing.T) {
+	f, err := Parse([]byte("instances:\n  - name: chat\n    model: m\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	specs, err := f.ToSpecs()
+	if err != nil {
+		t.Fatalf("ToSpecs: %v", err)
+	}
+	if specs[0].Network != "" {
+		t.Errorf("Network = %q, want empty (shared network)", specs[0].Network)
+	}
+}
+
+func TestInvalidNetworkNameRejected(t *testing.T) {
+	f, err := Parse([]byte("network: \"bad net!\"\ninstances:\n  - name: chat\n    model: m\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := f.ToSpecs(); err == nil {
+		t.Fatal("expected an invalid network name to be rejected")
+	}
+}
+
 func TestInvalidStackNameRejected(t *testing.T) {
 	f, err := Parse([]byte("name: \"bad name!\"\ninstances:\n  - name: chat\n    model: m\n"))
 	if err != nil {

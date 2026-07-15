@@ -9,6 +9,11 @@
 # Ports left unset are auto-assigned. Services come up before instances.
 version: "1"
 
+# Optional boundary: uncomment to put this whole stack on its own private
+# network — members resolve each other by name, everything else is walled off.
+# Per-instance/per-service `network:` overrides it.
+# network: rag
+
 defaults:
   backend: ollama
   host: 127.0.0.1

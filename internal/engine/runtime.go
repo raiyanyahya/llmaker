@@ -48,6 +48,11 @@ type Spec struct {
 	Env     map[string]string
 	Runtime RuntimeKind
 	Stack   string // named stack this instance belongs to (set by `apply`)
+	// Network is the logical group this container joins. Containers with the
+	// same Network share a private Docker network and resolve each other by
+	// name; different groups can't reach each other. Empty = the shared
+	// llmaker network (every container reachable, the historical behavior).
+	Network string
 }
 
 // Runtime is the orchestration backend. Implementations must be safe to call
@@ -88,6 +93,16 @@ type Runtime interface {
 type ImagePuller interface {
 	// PullImage pulls ref, invoking onEvent for human-readable progress lines.
 	PullImage(ctx context.Context, ref string, onEvent func(string)) error
+}
+
+// NetworkPruner is an optional capability: a Runtime that maintains per-group
+// networks implements it so the CLI can garbage-collect networks left empty
+// after instances and services are removed.
+type NetworkPruner interface {
+	// PruneNetworks removes managed group networks with no containers attached
+	// and returns the logical names it removed. The shared network is never
+	// touched.
+	PruneNetworks(ctx context.Context) ([]string, error)
 }
 
 // DefaultStopTimeout is how long to wait for graceful shutdown before killing.

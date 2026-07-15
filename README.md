@@ -321,6 +321,27 @@ the same way:
 docker run --rm --network llmaker-net redis:7-alpine redis-cli -h redis ping   # → PONG
 ```
 
+**Network boundaries.** By default everything shares `llmaker-net`. When you run
+several app stacks side by side, give each its own boundary: a top-level
+`network:` in the stack file puts every container in the file on a private
+network (`llmaker-net-<name>`) — members still resolve each other by name, but
+nothing outside the group can reach them, and vice versa. Two files declaring
+the same `network:` share one boundary; a per-instance/per-service `network:`
+overrides the file default; `llmaker up --network <name>` and
+`llmaker service add <kind> --network <name>` group ad-hoc containers the same
+way. Empty group networks are cleaned up automatically when their last member
+is removed.
+
+```yaml
+# rag.yaml — this stack is isolated from every other llmaker container
+name: rag
+network: rag
+instances:
+  - { name: chat, model: llama3:8b }    # reaches qdrant:6333, invisible elsewhere
+services:
+  - use: qdrant
+```
+
 Adding a service is a single entry in `internal/service/catalog.go`; the CLI,
 fleet view, and declarative engine pick it up automatically.
 
@@ -337,6 +358,7 @@ named automatically). An unnamed file prunes the whole managed fleet.
 
 ```yaml
 # stack.yaml  →  llmaker apply -f stack.yaml [--prune]
+# network: myapp   ← optional: isolate this stack on its own private network
 defaults: { backend: ollama }
 instances:
   - { name: chat, model: llama3:8b, memory: 8g }   # → chat:8080
@@ -419,6 +441,7 @@ no local state file to drift out of sync. Model facades and the agent are Python
 | backend / model | `--backend` · `--model` · `stack.yaml` | `ollama` · backend default |
 | memory · cpus · gpu | flags · `stack.yaml` | host-derived |
 | port · host | `--port` · `--host` | auto · `127.0.0.1` |
+| network boundary | `--network` · `network:` in the stack file | shared `llmaker-net` |
 | service environment | `service add --env` · `env:` in `stack.yaml` | per-service defaults |
 | `API_KEY` · `CORS_ORIGINS` · `KEEP_ALIVE` | `--api-key` · `--cors` · `--keep-alive` | open · none (was `*`; set `--cors '*'` to restore) · `5m` |
 

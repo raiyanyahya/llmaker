@@ -23,6 +23,7 @@ type ServiceSpec struct {
 	Memory   int64 // bytes; 0 means "no limit"
 	CPUs     float64
 	Stack    string // named stack this service belongs to (set by `apply`)
+	Network  string // logical group network; empty = the shared llmaker network
 }
 
 // PortBinding maps a container port to a host port.
@@ -53,6 +54,7 @@ type Service struct {
 	Health   Health
 	Created  time.Time
 	Stack    string // the named stack this service belongs to (empty if standalone)
+	Network  string // logical group network ("" = the shared llmaker network)
 }
 
 // PrimaryPort returns the host port users primarily connect to (the binding
