@@ -53,6 +53,9 @@ class AppState:
             self._in_flight += 1
 
     def leave_request(self) -> None:
+        # Clamped deliberately: the public gauge must never go negative even if
+        # a future pairing bug double-leaves. Pairing is owned by _serve /
+        # _tracked_stream in routes/inference.py.
         with self._lock:
             if self._in_flight > 0:
                 self._in_flight -= 1

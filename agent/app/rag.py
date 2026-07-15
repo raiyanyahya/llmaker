@@ -142,6 +142,14 @@ class RagPipeline:
         safe_end(gen, output=answer, usage=_usage(resp))
         return {"answer": answer}
 
+    def _effective_top_k(self, top_k: int | None) -> int:
+        """Resolve the retrieval depth: 0/None mean the configured default, and
+        the result is capped so one request can't force an arbitrarily deep
+        search — the ceiling is 100, or the default itself when the operator
+        configures it higher."""
+        k = top_k or self._settings.top_k
+        return min(k, max(100, self._settings.top_k))
+
     async def answer(
         self, question: str, top_k: int | None = None, history: list[dict] | None = None
     ) -> RagState:
@@ -153,7 +161,7 @@ class RagPipeline:
             {
                 "question": question,
                 "history": history or [],
-                "top_k": top_k or self._settings.top_k,
+                "top_k": self._effective_top_k(top_k),
                 "trace": trace,
             }
         )

@@ -73,13 +73,21 @@ func pollHealth(ctx context.Context, app *App, baseURL string, timeout time.Dura
 }
 
 // isLoopbackHost reports whether a bind address is loopback-only (so the facade
-// is reachable only from this machine). An empty host means the default 127.0.0.1.
+// is reachable only from this machine). An empty host means the default
+// 127.0.0.1 (the engine applies the same default when binding ports). It
+// normalizes the spellings users actually type — case, stray whitespace,
+// bracketed IPv6, zone suffixes ("::1%lo") — so loopback binds don't draw a
+// spurious exposure warning.
 func isLoopbackHost(host string) bool {
-	switch host {
-	case "", "localhost":
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" || host == "localhost" {
 		return true
 	}
-	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
+	host = strings.Trim(host, "[]")
+	if i := strings.IndexByte(host, '%'); i >= 0 {
+		host = host[:i]
+	}
+	if ip := net.ParseIP(host); ip != nil {
 		return ip.IsLoopback()
 	}
 	return false

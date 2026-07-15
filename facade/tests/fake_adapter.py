@@ -14,6 +14,7 @@ class FakeAdapter(Adapter):
         self.deleted: list[str] = []
         self.last_payload: dict | None = None  # last chat/completions/embeddings body
         self.fail = False  # when True, inference raises (to exercise error paths)
+        self.fail_stream = False  # when True, streamed responses die mid-stream
         self._installed = [
             InstalledModel(name="llama3:8b", size=4_000_000_000, modified="2024-01-01")
         ]
@@ -41,17 +42,20 @@ class FakeAdapter(Adapter):
         if self.fail:
             raise RuntimeError("backend unavailable")
         if payload.get("stream"):
-
-            async def gen():
-                yield b'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'
-                yield b'data: {"choices":[{"delta":{"content":" world"}}]}\n\n'
-                yield b"data: [DONE]\n\n"
-
-            return gen()
+            # Lazy, like the real adapters: the generator only runs (and can
+            # only fail) once the response body is drained.
+            return self._stream()
         return {
             "choices": [{"message": {"role": "assistant", "content": "Hello world"}}],
             "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
         }
+
+    async def _stream(self):
+        yield b'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'
+        if self.fail_stream:
+            raise RuntimeError("backend died mid-stream")
+        yield b'data: {"choices":[{"delta":{"content":" world"}}]}\n\n'
+        yield b"data: [DONE]\n\n"
 
     async def completions(self, payload: dict):
         self.last_payload = payload
@@ -61,6 +65,8 @@ class FakeAdapter(Adapter):
 
     async def embeddings(self, payload: dict) -> dict:
         self.last_payload = payload
+        if self.fail:
+            raise RuntimeError("backend unavailable")
         return {"data": [{"embedding": [0.1, 0.2, 0.3]}]}
 
     async def openai_models(self) -> dict:

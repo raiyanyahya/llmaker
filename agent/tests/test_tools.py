@@ -67,6 +67,27 @@ def test_safe_eval_rejects_nested_power_blowup():
     assert safe_eval("9**500") == 9**500
 
 
+def test_safe_eval_float_overflow_is_value_error():
+    # Float pow overflow must keep the ValueError contract, not leak
+    # OverflowError's cryptic errno tuple to callers.
+    for expr in ["10.0**400", "0.1**-1000", "(9**999)**-2"]:
+        with pytest.raises(ValueError):
+            safe_eval(expr)
+
+
+def test_safe_eval_allows_negative_exponent_on_large_base():
+    # A negative exponent shrinks the result toward zero — it must not be
+    # rejected as "too large" just because the base is big.
+    assert safe_eval("(2**800)**-50") == 0.0
+
+
+def test_safe_eval_rejects_bool_literals():
+    # bool is an int subclass, but True/False are not calculator numbers.
+    for expr in ["True", "2*True", "False+1"]:
+        with pytest.raises(ValueError):
+            safe_eval(expr)
+
+
 async def test_calculator_tool():
     assert await calculator.run({"expression": "6*7"}) == "42"
     # Bad input is reported, never raised.

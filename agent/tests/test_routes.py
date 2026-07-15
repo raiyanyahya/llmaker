@@ -166,6 +166,28 @@ def test_file_ingest():
         assert r.json()["source"] == "notes.txt"
 
 
+def test_zero_means_server_default_for_bounded_ints():
+    # Legacy clients marshal "unset" numeric fields as 0; that must validate
+    # (and mean "use the server default"), while negatives stay rejected.
+    with make_client() as c:
+        assert c.post("/api/chat", json={"question": "q", "top_k": 0}).status_code == 200
+        assert c.post("/api/agent", json={"question": "q", "max_steps": 0}).status_code == 200
+        assert c.post("/api/chat", json={"question": "q", "top_k": -1}).status_code == 422
+
+
+def test_eval_case_fanout_is_bounded():
+    # Each eval case fans out into retrieval + generation + judge LLM calls.
+    with make_client() as c:
+        r = c.post("/api/eval", json={"cases": [{"question": "q"}] * 201})
+        assert r.status_code == 422
+
+
+def test_summarize_text_is_bounded():
+    # Map-reduce costs one LLM call per chunk; unbounded text is a DoS knob.
+    with make_client() as c:
+        assert c.post("/api/summarize", json={"text": "x" * 1_000_001}).status_code == 422
+
+
 def test_auth_enforced_when_key_set():
     with make_client(api_key="secret") as c:
         assert c.get("/health").status_code == 200  # health stays open

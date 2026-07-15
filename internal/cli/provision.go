@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/raiyanyahya/llmaker/internal/engine"
@@ -22,11 +23,10 @@ func provision(ctx context.Context, app *App, rt engine.Runtime, spec engine.Spe
 
 	// A public bind with no API key exposes the facade — including model
 	// pull/delete and host metrics — to anyone on the network. Warn loudly.
-	if !isLoopbackHost(spec.Host) && spec.Env["API_KEY"] == "" {
-		io.Println(t.WarnLine(fmt.Sprintf(
-			"%s binds to %s with no API key: the facade (model pull/delete, /metrics) is reachable by anyone on the network.",
-			spec.Name, spec.Host)))
-		io.Println(t.Muted.Render("  Set --api-key to require a bearer token, or bind to 127.0.0.1."))
+	// Trimmed to mirror the facade, which strips the key and disables auth
+	// when it is blank.
+	if !isLoopbackHost(spec.Host) && strings.TrimSpace(spec.Env["API_KEY"]) == "" {
+		warnPublicNoKey(app, spec.Name, spec.Host)
 	}
 
 	// Pull the prebuilt image, streaming progress when the runtime supports it.
@@ -73,4 +73,25 @@ func provision(ctx context.Context, app *App, rt engine.Runtime, spec engine.Spe
 		}
 	}
 	return baseURL, nil
+}
+
+// warnPublicNoKey prints the loud public-bind/no-API-key warning. provision
+// emits it at creation; start/restart re-warn via warnIfPublicNoKey, since the
+// exposure recurs on every boot, not just the first.
+func warnPublicNoKey(app *App, name, host string) {
+	t := app.IO.Theme
+	app.IO.Println(t.WarnLine(fmt.Sprintf(
+		"%s binds to %s with no API key: the facade (model pull/delete, /metrics) is reachable by anyone on the network.",
+		name, host)))
+	app.IO.Println(t.Muted.Render("  Require a bearer token with --api-key (or `env: {API_KEY: …}` in a fleet file), or bind to 127.0.0.1."))
+}
+
+// warnIfPublicNoKey re-warns when an existing instance is known — via the auth
+// label stamped at creation — to bind publicly with no API key. Instances
+// created before the label existed are skipped rather than false-alarmed.
+func warnIfPublicNoKey(app *App, in engine.Instance) {
+	if in.Auth != engine.AuthNone || isLoopbackHost(in.Host) {
+		return
+	}
+	warnPublicNoKey(app, in.Name, in.Host)
 }

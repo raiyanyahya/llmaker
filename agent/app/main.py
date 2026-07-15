@@ -48,8 +48,10 @@ class Message(BaseModel):
 
 class ChatRequest(BaseModel):
     question: str
-    top_k: int | None = Field(default=None, ge=1, le=100)  # retrieval depth (bounded)
-    history: list[Message] | None = None  # prior turns, for multi-turn chat
+    # Retrieval depth; None — or 0, which legacy clients marshal for "unset" —
+    # means the server default. The pipeline caps the effective value (rag.py).
+    top_k: int | None = Field(default=None, ge=0)
+    history: list[Message] | None = Field(default=None, max_length=200)  # prior turns
     session_id: str | None = None  # when set + memory enabled, persist/resume history
 
 
@@ -60,30 +62,34 @@ class Item(BaseModel):
 
 
 class ItemsRequest(BaseModel):
-    items: list[Item]
+    items: list[Item] = Field(max_length=1000)  # bounded: every item is embedded
 
 
 class RecommendRequest(BaseModel):
     query: str | None = None  # recommend by free-text intent
-    like: list[str] | None = None  # …or "more like these" item ids
-    k: int = Field(default=5, ge=1, le=100)  # how many to return (bounded)
+    like: list[str] | None = Field(default=None, max_length=100)  # …or "more like these" item ids
+    k: int = Field(default=5, ge=0, le=100)  # how many to return (bounded)
 
 
 class AgentRequest(BaseModel):
     question: str
-    history: list[Message] | None = None
-    max_steps: int | None = Field(default=None, ge=1, le=20)  # tool-loop budget (bounded)
+    history: list[Message] | None = Field(default=None, max_length=200)
+    # Tool-loop budget; None/0 = the operator budget (AGENT_MAX_STEPS), which is
+    # also the ceiling — a request can lower it, never raise it (agent_graph.py).
+    max_steps: int | None = Field(default=None, ge=0)
     session_id: str | None = None
 
 
 class SummarizeRequest(BaseModel):
-    text: str
+    # Bounded: map-reduce costs one LLM call per chunk, so unbounded text would
+    # let a single request queue thousands of backend calls.
+    text: str = Field(max_length=1_000_000)
     instructions: str | None = None  # e.g. "as 3 bullet points" / "for an executive"
     max_words: int | None = None
 
 
 class ExtractRequest(BaseModel):
-    text: str
+    text: str = Field(max_length=1_000_000)  # single-prompt extraction; keep it sane
     fields: dict[str, str]  # field name → what to pull out
 
 
@@ -94,8 +100,9 @@ class EvalCase(BaseModel):
 
 
 class EvalRequest(BaseModel):
-    cases: list[EvalCase]
-    top_k: int | None = Field(default=None, ge=1, le=100)  # retrieval depth (bounded)
+    # Each case costs retrieval + generation + an LLM-judge call; cap the fan-out.
+    cases: list[EvalCase] = Field(max_length=200)
+    top_k: int | None = Field(default=None, ge=0)  # retrieval depth; 0/None = default
 
 
 @asynccontextmanager

@@ -184,6 +184,30 @@ func TestFacadeEnv(t *testing.T) {
 	}
 }
 
+func TestIsLoopbackHost(t *testing.T) {
+	cases := map[string]bool{
+		"":            true, // engine defaults empty host to 127.0.0.1
+		"localhost":   true,
+		"LOCALHOST":   true,
+		" 127.0.0.1 ": true,
+		"127.0.0.1":   true,
+		"127.9.9.9":   true, // all of 127/8 is loopback
+		"::1":         true,
+		"[::1]":       true,
+		"::1%lo":      true, // zone suffix
+		"0.0.0.0":     false,
+		"::":          false,
+		"192.168.1.5": false,
+		"10.0.0.1":    false,
+		"example.com": false, // unresolvable spellings warn (safe direction)
+	}
+	for in, want := range cases {
+		if got := isLoopbackHost(in); got != want {
+			t.Errorf("isLoopbackHost(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
 func TestRunLsTableAndJSON(t *testing.T) {
 	app, rt, _, out := testApp(t)
 	seedRunning(rt, "alpha")

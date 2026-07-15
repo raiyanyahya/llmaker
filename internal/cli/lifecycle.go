@@ -32,7 +32,11 @@ func newStartCmd(app *App) *cobra.Command {
 		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runLifecycle(cmd.Context(), app, args, "Starting", func(ctx context.Context, rt engine.Runtime, in engine.Instance) error {
-				return rt.Start(ctx, in.Name)
+				if err := rt.Start(ctx, in.Name); err != nil {
+					return err
+				}
+				warnIfPublicNoKey(app, in)
+				return nil
 			})
 		},
 	}
@@ -51,7 +55,11 @@ func newRestartCmd(app *App) *cobra.Command {
 						return err
 					}
 				}
-				return rt.Start(ctx, in.Name)
+				if err := rt.Start(ctx, in.Name); err != nil {
+					return err
+				}
+				warnIfPublicNoKey(app, in)
+				return nil
 			})
 		},
 	}

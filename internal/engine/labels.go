@@ -26,6 +26,11 @@ const (
 	// LabelStack groups resources created together from a named stack file, so
 	// `apply --prune` can be scoped to that stack instead of the whole fleet.
 	LabelStack = "llmaker.stack"
+	// LabelAuth records whether the instance was created with an API key
+	// (AuthKey) or without (AuthNone), so lifecycle commands can re-warn about
+	// a public keyless bind on every boot without inspecting container env.
+	// Absent on instances created before the label existed.
+	LabelAuth = "llmaker.auth"
 
 	// LabelType distinguishes an LLM instance from an infrastructure service.
 	// It is absent on instances created before services existed, which is why
@@ -45,6 +50,12 @@ const (
 	TypeService  = "service"
 )
 
+// Values stored in LabelAuth.
+const (
+	AuthKey  = "key"
+	AuthNone = "none"
+)
+
 // SpecLabels builds the label set stamped onto an instance at creation time.
 // image and port are passed explicitly because they may be resolved (image
 // override, auto-allocated port) after the Spec is built.
@@ -57,6 +68,10 @@ func SpecLabels(s Spec, image string, port int) map[string]string {
 	if host == "" {
 		host = "127.0.0.1"
 	}
+	auth := AuthNone
+	if strings.TrimSpace(s.Env["API_KEY"]) != "" {
+		auth = AuthKey
+	}
 	m := map[string]string{
 		LabelManagedBy: ManagedByValue,
 		LabelType:      TypeInstance,
@@ -67,6 +82,7 @@ func SpecLabels(s Spec, image string, port int) map[string]string {
 		LabelPort:      strconv.Itoa(port),
 		LabelHost:      host,
 		LabelRuntime:   string(rt),
+		LabelAuth:      auth,
 		LabelCreated:   time.Now().UTC().Format(time.RFC3339),
 	}
 	if s.Stack != "" {
@@ -130,6 +146,7 @@ func InstanceFromLabels(id string, state State, labels map[string]string) Instan
 		Health:  HealthUnknown,
 		Runtime: RuntimeKind(labels[LabelRuntime]),
 		Stack:   labels[LabelStack],
+		Auth:    labels[LabelAuth],
 	}
 	if inst.Runtime == "" {
 		inst.Runtime = RuntimeContainer

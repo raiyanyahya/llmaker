@@ -35,6 +35,11 @@ def _series(
         lines.append(f"{name}{labels} {value}")
 
 
+def _scalar(lines: list[str], name: str, mtype: str, help_: str, value: object) -> None:
+    """Append a metric family with a single unlabeled sample (the common case)."""
+    _series(lines, name, mtype, help_, [("", value)])
+
+
 @router.get("/metrics", include_in_schema=False)
 async def metrics(request: Request) -> Response:
     st = request.app.state.app_state
@@ -48,69 +53,61 @@ async def metrics(request: Request) -> Response:
         f'version="{_escape(settings.version)}"}}'
     )
     _series(lines, "llmaker_info", "gauge", "Instance metadata (always 1).", [(info_labels, 1)])
-    _series(lines, "llmaker_up", "gauge", "1 when the facade is serving.", [("", 1)])
-    _series(
+    _scalar(lines, "llmaker_up", "gauge", "1 when the facade is serving.", 1)
+    _scalar(
         lines,
         "llmaker_uptime_seconds",
         "gauge",
         "Facade uptime in seconds.",
-        [("", f"{st.uptime_seconds():.0f}")],
+        f"{st.uptime_seconds():.0f}",
     )
-    _series(
-        lines,
-        "llmaker_requests_total",
-        "counter",
-        "Total inference requests handled.",
-        [("", st.requests)],
+    _scalar(
+        lines, "llmaker_requests_total", "counter", "Total inference requests handled.", st.requests
     )
-    _series(
+    _scalar(
         lines,
         "llmaker_errors_total",
         "counter",
         "Inference requests that failed with a backend error.",
-        [("", st.errors)],
+        st.errors,
     )
-    _series(
+    _scalar(
         lines,
         "llmaker_requests_in_flight",
         "gauge",
         "Inference requests currently being served.",
-        [("", st.in_flight)],
+        st.in_flight,
     )
-    _series(
+    _scalar(
         lines,
         "llmaker_completion_tokens_total",
         "counter",
         "Cumulative completion tokens generated (non-streamed responses).",
-        [("", st.total_tokens)],
+        st.total_tokens,
     )
-    _series(
+    _scalar(
         lines,
         "llmaker_tokens_per_second",
         "gauge",
         "Recent generation throughput (tokens/sec).",
-        [("", f"{st.tokens_per_second:.3f}")],
+        f"{st.tokens_per_second:.3f}",
     )
-    _series(
+    _scalar(
         lines,
         "llmaker_cpu_percent",
         "gauge",
         "Host CPU utilization (0-100).",
-        [("", f"{sys.cpu_percent:.1f}")],
+        f"{sys.cpu_percent:.1f}",
     )
-    _series(
-        lines,
-        "llmaker_memory_used_bytes",
-        "gauge",
-        "Host memory used, in bytes.",
-        [("", sys.memory_used)],
+    _scalar(
+        lines, "llmaker_memory_used_bytes", "gauge", "Host memory used, in bytes.", sys.memory_used
     )
-    _series(
+    _scalar(
         lines,
         "llmaker_memory_total_bytes",
         "gauge",
         "Host memory total, in bytes.",
-        [("", sys.memory_total)],
+        sys.memory_total,
     )
 
     if sys.gpus:

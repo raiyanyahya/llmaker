@@ -38,7 +38,7 @@ only, no secrets) so a scraper needs no credentials.
 | `LLMAKER_DEFAULT_MODEL` | — | initial default model |
 | `FACADE_PORT` | `8080` | port the facade binds inside the container |
 | `API_KEY` | — | when set, require `Authorization: Bearer <key>` |
-| `CORS_ORIGINS` | `*` | comma-separated allowed origins |
+| `CORS_ORIGINS` | — | comma-separated allowed origins; empty (the default) disables cross-origin access — set `*` to allow any origin (the pre-hardening default) |
 | `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama backend address |
 
 ## Develop

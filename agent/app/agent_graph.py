@@ -122,6 +122,13 @@ class ToolAgent:
             "iterations": state.get("iterations", 0) + 1,
         }
 
+    def _effective_max_steps(self, max_steps: int | None) -> int:
+        """The operator budget (AGENT_MAX_STEPS) is the hard ceiling: a request
+        may lower the tool-loop budget (0/None = use the budget) but never
+        raise it."""
+        budget = self._settings.agent_max_steps
+        return min(max_steps or budget, budget)
+
     async def run(
         self, question: str, history: list[dict] | None = None, max_steps: int | None = None
     ) -> dict:
@@ -136,7 +143,7 @@ class ToolAgent:
                 "messages": messages,
                 "steps": [],
                 "iterations": 0,
-                "max_steps": max_steps or self._settings.agent_max_steps,
+                "max_steps": self._effective_max_steps(max_steps),
                 "trace": trace,
             }
         )

@@ -44,6 +44,16 @@ class ScriptedLLM:
         return _Resp(r)
 
 
+def test_max_steps_capped_at_operator_budget():
+    # AGENT_MAX_STEPS is the ceiling: a request may lower the budget but never
+    # raise it; 0/None mean "use the budget".
+    agent = ToolAgent(Settings(agent_max_steps=4), [calculator], llm=ScriptedLLM([]))
+    assert agent._effective_max_steps(None) == 4
+    assert agent._effective_max_steps(0) == 4
+    assert agent._effective_max_steps(2) == 2
+    assert agent._effective_max_steps(50) == 4
+
+
 async def test_tool_agent_calls_tool_then_answers():
     llm = ScriptedLLM(
         [

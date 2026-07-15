@@ -158,11 +158,79 @@ def test_metrics_errors_and_in_flight(settings, adapter):
         assert int(in_flight.split()[1]) == 0
 
 
+def _metric(body: str, name: str) -> int:
+    line = next(ln for ln in body.splitlines() if ln.startswith(f"{name} "))
+    return int(float(line.split()[1]))
+
+
 def test_metrics_completion_tokens_total(client):
     client.post("/v1/chat/completions", json={"messages": [{"role": "user", "content": "hi"}]})
     body = client.get("/metrics").text
-    line = next(ln for ln in body.splitlines() if ln.startswith("llmaker_completion_tokens_total "))
-    assert int(line.split()[1]) >= 2  # the fake reports completion_tokens=2
+    # Exactly the fake's completion_tokens=2 — total_tokens (5, includes prompt)
+    # must never leak into the completion counter.
+    assert _metric(body, "llmaker_completion_tokens_total") == 2
+
+
+def test_stream_error_counts_and_settles(settings, adapter):
+    # Real adapters build streams lazily, so backend failures surface mid-body;
+    # they must still count in errors_total and release the in-flight slot.
+    adapter.fail_stream = True
+    app = create_app(settings=settings, adapter=adapter)
+    with TestClient(app, raise_server_exceptions=False) as c:
+        try:
+            c.post("/v1/chat/completions", json={"messages": [], "stream": True})
+        except Exception:
+            pass  # the mid-stream failure surfaces as a transport error
+        body = c.get("/metrics").text
+        assert _metric(body, "llmaker_errors_total") == 1
+        assert _metric(body, "llmaker_requests_in_flight") == 0
+
+
+def test_non_dict_usage_is_ignored(settings):
+    # A nonconforming backend 200 (usage not a dict) must not 500 or leak the
+    # in-flight gauge — metrics never fail a request.
+    class WeirdUsageAdapter(FakeAdapter):
+        async def chat(self, payload: dict):
+            return {"choices": [], "usage": "n/a"}
+
+    app = create_app(settings=settings, adapter=WeirdUsageAdapter())
+    with TestClient(app) as c:
+        assert c.post("/v1/chat/completions", json={"messages": []}).status_code == 200
+        body = c.get("/metrics").text
+        assert _metric(body, "llmaker_requests_in_flight") == 0
+        assert _metric(body, "llmaker_errors_total") == 0
+
+
+def test_deleted_default_is_not_resurrected(client, adapter):
+    # Deleting the default model clears the live default; the static settings
+    # value must not sneak back into model-less requests.
+    client.post("/api/models/delete", json={"model": "llama3:8b"})
+    r = client.post("/v1/chat/completions", json={"messages": []})
+    assert r.status_code == 200
+    assert "model" not in adapter.last_payload
+
+
+def test_embeddings_counted_in_metrics(settings, adapter):
+    # Embeddings go through the same accounting as chat/completions.
+    app = create_app(settings=settings, adapter=adapter)
+    with TestClient(app, raise_server_exceptions=False) as c:
+        assert c.post("/v1/embeddings", json={"input": "hi"}).status_code == 200
+        adapter.fail = True
+        assert c.post("/v1/embeddings", json={"input": "hi"}).status_code == 500
+        body = c.get("/metrics").text
+        assert _metric(body, "llmaker_requests_total") == 2
+        assert _metric(body, "llmaker_errors_total") == 1
+        assert _metric(body, "llmaker_requests_in_flight") == 0
+
+
+def test_non_string_model_rejected(client, adapter):
+    # An explicit non-string model is a client bug: reject it instead of
+    # silently serving the default. null means "unset" and gets the default.
+    r = client.post("/v1/chat/completions", json={"model": 123, "messages": []})
+    assert r.status_code == 400
+    r = client.post("/v1/chat/completions", json={"model": None, "messages": []})
+    assert r.status_code == 200
+    assert adapter.last_payload["model"] == "llama3:8b"
 
 
 def test_invalid_json_returns_400(client):

@@ -30,6 +30,19 @@ class FakeLLM:
         return _Resp("answer using: " + messages[-1]["content"])
 
 
+def test_effective_top_k_clamped():
+    # 0/None = configured default; requests are capped at 100 unless the
+    # operator's own default is higher, which is then honored as the ceiling.
+    pipe = RagPipeline(Settings(top_k=4), FakeStore(), FakeEmbedder(), llm=FakeLLM())
+    assert pipe._effective_top_k(None) == 4
+    assert pipe._effective_top_k(0) == 4
+    assert pipe._effective_top_k(10) == 10
+    assert pipe._effective_top_k(10_000) == 100
+    deep = RagPipeline(Settings(top_k=200), FakeStore(), FakeEmbedder(), llm=FakeLLM())
+    assert deep._effective_top_k(None) == 200
+    assert deep._effective_top_k(10_000) == 200
+
+
 async def test_pipeline_retrieves_then_generates():
     embedder = FakeEmbedder()
     store = FakeStore()

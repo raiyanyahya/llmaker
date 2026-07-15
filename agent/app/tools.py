@@ -87,17 +87,30 @@ def safe_eval(expression: str) -> float:
     calls, attributes) is rejected, so this never executes arbitrary code."""
 
     def _eval(node: ast.AST):
-        if isinstance(node, ast.Constant) and isinstance(node.value, int | float):
+        # bool is an int subclass; True/False are not calculator numbers.
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, int | float)
+            and not isinstance(node.value, bool)
+        ):
             return node.value
         if isinstance(node, ast.BinOp) and type(node.op) in _BIN_OPS:
             left, right = _eval(node.left), _eval(node.right)
             if isinstance(node.op, ast.Pow):
                 if abs(right) > _MAX_POW_EXP:
                     raise ValueError("exponent too large")
-                # Reject before computing: an astronomically large pow never runs.
-                if _magnitude_bits(left) * abs(right) > _MAX_RESULT_BITS:
+                # Reject before computing: an astronomically large pow never
+                # runs. Only positive exponents grow the result — a negative
+                # one shrinks it toward zero, however large the base.
+                if right > 0 and _magnitude_bits(left) * right > _MAX_RESULT_BITS:
                     raise ValueError("result too large")
-            result = _BIN_OPS[type(node.op)](left, right)
+            try:
+                result = _BIN_OPS[type(node.op)](left, right)
+            except OverflowError:
+                # Float overflow (e.g. 10.0**400, or an int too big to convert
+                # for a float op) raises OverflowError; keep the contract that
+                # size rejections are always ValueError.
+                raise ValueError("result too large") from None
             # Backstop for growth that isn't a single pow (e.g. a long multiply
             # chain): reject once an intermediate integer exceeds the cap.
             if isinstance(result, int) and result.bit_length() > _MAX_RESULT_BITS:

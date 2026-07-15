@@ -42,6 +42,7 @@ type Instance struct {
 	Created time.Time
 	Runtime RuntimeKind
 	Stack   string // the named stack this resource belongs to (empty if standalone)
+	Auth    string // AuthKey / AuthNone from LabelAuth ("" on pre-label instances)
 }
 
 // URL is the base address of the instance's facade as reachable from this host.

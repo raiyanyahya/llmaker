@@ -420,7 +420,7 @@ no local state file to drift out of sync. Model facades and the agent are Python
 | memory · cpus · gpu | flags · `stack.yaml` | host-derived |
 | port · host | `--port` · `--host` | auto · `127.0.0.1` |
 | service environment | `service add --env` · `env:` in `stack.yaml` | per-service defaults |
-| `API_KEY` · `CORS_ORIGINS` · `KEEP_ALIVE` | `--api-key` · `--cors` · `--keep-alive` | open · `*` · `5m` |
+| `API_KEY` · `CORS_ORIGINS` · `KEEP_ALIVE` | `--api-key` · `--cors` · `--keep-alive` | open · none (was `*`; set `--cors '*'` to restore) · `5m` |
 
 Per-service and agent configuration (model URLs, chunking, reranking, tracing
 keys) is documented in [`agent/README.md`](agent/README.md) and

@@ -53,6 +53,32 @@ func TestSpecLabelsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSpecLabelsAuth(t *testing.T) {
+	// The auth label mirrors the facade's semantics: a blank/whitespace key is
+	// no key at all. It lets lifecycle commands re-warn about public keyless
+	// binds without inspecting container env.
+	keyed := SpecLabels(Spec{Name: "a", Env: map[string]string{"API_KEY": "s3cret"}}, "img", 1)
+	if keyed[LabelAuth] != AuthKey {
+		t.Errorf("keyed LabelAuth = %q, want %q", keyed[LabelAuth], AuthKey)
+	}
+	blank := SpecLabels(Spec{Name: "a", Env: map[string]string{"API_KEY": "  "}}, "img", 1)
+	if blank[LabelAuth] != AuthNone {
+		t.Errorf("whitespace-key LabelAuth = %q, want %q", blank[LabelAuth], AuthNone)
+	}
+	none := SpecLabels(Spec{Name: "a"}, "img", 1)
+	if none[LabelAuth] != AuthNone {
+		t.Errorf("no-env LabelAuth = %q, want %q", none[LabelAuth], AuthNone)
+	}
+
+	if in := InstanceFromLabels("id", StateRunning, keyed); in.Auth != AuthKey {
+		t.Errorf("round-tripped Auth = %q, want %q", in.Auth, AuthKey)
+	}
+	// Pre-label containers read as unknown ("") — never as AuthNone.
+	if in := InstanceFromLabels("id", StateRunning, map[string]string{}); in.Auth != "" {
+		t.Errorf("pre-label Auth = %q, want empty", in.Auth)
+	}
+}
+
 func TestInstanceFromLabelsDegradesGracefully(t *testing.T) {
 	// A container with only the managed-by label (e.g. created by an older
 	// version) should still surface, not vanish or panic.

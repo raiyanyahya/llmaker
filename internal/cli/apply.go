@@ -99,6 +99,8 @@ func runApply(ctx context.Context, app *App, opts applyOptions) error {
 			if !cur.IsRunning() {
 				if err := app.step("Starting "+spec.Name, func() error { return rt.Start(ctx, spec.Name) }); err != nil {
 					errs = append(errs, err)
+				} else {
+					warnIfPublicNoKey(app, cur)
 				}
 			} else {
 				io.Println(t.Muted.Render("• " + spec.Name + " already running"))
