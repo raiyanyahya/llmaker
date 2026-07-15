@@ -106,13 +106,15 @@ by name — no Compose file and no glue code.
 |---|---|
 | **The complete stack, curated** | Models **and** the infrastructure around them — vector databases (Qdrant, Chroma, pgvector, Weaviate), Redis, embeddings, Open WebUI, n8n, Flowise, Whisper, Langfuse — from one versioned catalog. |
 | **Automatic service discovery** | Every model and service joins a private Docker network and resolves by name. Your application reaches `chat:8080` and `qdrant:6333` with zero IP wiring. |
+| **App-stack boundaries** | Group containers into isolated stacks with one `network:` line (or `--network`): members resolve each other by name, nothing outside the group can reach them, and empty group networks are garbage-collected automatically. |
+| **GPU partitioning** | Split a multi-GPU box between instances: `--gpus 2` takes any two free devices, `--gpus 0,1` exactly those — exclusive, label-tracked reservations. `apply` admits a stack's whole GPU demand as a unit (gang admission), so it comes up fully or not at all. |
 | **A retrieval & tool agent, built in** | A FastAPI + LangGraph service: `rewrite → retrieve → rerank → generate` (multi-turn, MMR), a tool-calling loop (calculator, knowledge base, self-hosted web search, SQL), and a semantic recommendation API. |
 | **Observability by default** | Every instance exposes Prometheus `/metrics` (requests, errors, in-flight, completion tokens, tokens/sec, CPU/RAM/GPU) for scraping, and the RAG stack ships Langfuse — every query traced (retrieval hits and scores, model and token usage) with no setup. |
 | **Measurable quality** | An evaluation harness (`/api/eval`) grades answers for groundedness, relevance, and correctness with an LLM judge — retrieval quality you can track across changes, not guess at. |
 | **More than RAG** | First-class endpoints for summarization (map-reduce over long docs), structured JSON extraction, and speech-to-text (Whisper), plus optional Redis-backed conversation memory. |
 | **Declarative, reconcilable** | Define your stack in one file. `llmaker apply` brings it to the desired state in dependency order; `--prune` removes what's no longer declared. |
 | **OpenAI-compatible** | Each model exposes a stable `/v1/*` API (chat, completions, embeddings, streaming) behind one contract — and fills in the instance's default model when a request omits one, so any OpenAI client just works. Ollama runs it today, with a llama.cpp backend [in progress](#roadmap). |
-| **Private by design** | Containers bind to `127.0.0.1` by default. Your documents, embeddings, and traces never leave your infrastructure. No per-token cost, no vendor lock-in. |
+| **Private by design** | Containers bind to `127.0.0.1` by default, cross-origin browser access is off until you opt in, and the CLI warns loudly — at creation and on every boot — if an instance is publicly bound without an API key. Your documents, embeddings, and traces never leave your infrastructure. |
 | **Operable** | A single static Go binary, a labeled-container model with no state file to drift, `--json` output everywhere, and a live `top` dashboard. |
 
 ---
@@ -133,6 +135,8 @@ by name — no Compose file and no glue code.
 | Run local models, OpenAI-compatible | ✓ | — | — | ✓ |
 | Vector DB, embeddings, cache — curated | — | manual | — | ✓ |
 | Service discovery between containers | — | manual | n/a | ✓ |
+| Network isolation between app stacks | — | manual | n/a | ✓ |
+| Exclusive GPU partitioning, gang-admitted stacks | — | manual | n/a | ✓ |
 | One-command application (RAG, recsys) | — | — | — | ✓ |
 | Built-in retrieval & recommendation agent | — | — | you code it | ✓ |
 | Observability / tracing integrated | — | manual | manual | ✓ |
@@ -312,10 +316,10 @@ llmaker service add langfuse     # observability       → langfuse:3000
 | Web UI & apps | Open WebUI (ChatGPT-style UI) · n8n (workflow automation) · Flowise (visual LLM app builder) |
 | Agent | LangGraph retrieval & recommendation agent |
 
-Every model and service joins a private Docker network (`llmaker-net`) and is
-addressable there by name — service discovery without IPs, links, or a Compose
-file. Applications running on the host or in their own container reach the stack
-the same way:
+Every model and service joins a private Docker network — the shared `llmaker-net`
+by default — and is addressable there by name: service discovery without IPs,
+links, or a Compose file. Applications running on the host or in their own
+container reach the stack the same way:
 
 ```bash
 docker run --rm --network llmaker-net redis:7-alpine redis-cli -h redis ping   # → PONG
@@ -403,10 +407,11 @@ Unset ports are assigned automatically; a stack may be services-only. See
 
 <sub>\* The llama.cpp backend is scaffolded but still maturing; Ollama is the verified default — see the [roadmap](#roadmap).</sub>
 
-The control plane is a single Go binary; the data plane is containers on a private
-network. Orchestration logic is decoupled from Docker behind a `Runtime`
-interface, and the fleet is tracked entirely through container labels — there is
-no local state file to drift out of sync. Model facades and the agent are Python
+The control plane is a single Go binary; the data plane is containers on private
+networks — one shared by default, or per-stack boundaries. Orchestration logic is
+decoupled from Docker behind a `Runtime` interface, and the fleet is tracked
+entirely through container labels (including GPU and network reservations) —
+there is no local state file to drift out of sync. Model facades and the agent are Python
 (FastAPI), each communicating over the same HTTP contract.
 
 ---
@@ -418,10 +423,10 @@ no local state file to drift out of sync. Model facades and the agent are Python
 | `llmaker stack up <assistant\|voice\|rag\|research\|code\|chatbot\|faq\|recommend\|sql>` | Scaffold a stack and apply it in one command |
 | `llmaker stack init <template>` | Generate a ready-to-apply stack definition to edit |
 | `llmaker apply -f stack.yaml` | Provision / reconcile a declarative stack — `--prune` |
-| `llmaker up [preset]` | Provision a model instance — preset, flags, or interactive wizard |
+| `llmaker up [preset]` | Provision a model instance — preset, flags (`--gpus`, `--network`, `--api-key`, …), or interactive wizard |
 | `llmaker stop \| start \| restart \| rm <name>...` | Instance lifecycle — `restart` = stop+start, `rm --force` removes a running one |
 | `llmaker service catalog` | List available services |
-| `llmaker service add <type> [name]` | Provision a service — `--env`, `--port`, `--memory` |
+| `llmaker service add <type> [name]` | Provision a service — `--env`, `--port`, `--memory`, `--network` |
 | `llmaker service ls \| rm \| stop \| start \| restart` | Manage services — `--json` |
 | `llmaker ls` | List the fleet — models and services — `--json`, `--quiet` |
 | `llmaker top` | Live resource dashboard across the fleet |
@@ -462,9 +467,26 @@ llmaker up --host 0.0.0.0 --api-key "$(openssl rand -hex 16)"
 ```
 
 When `API_KEY` is set, every `/v1/*` and `/api/*` request requires a bearer token
-(liveness probes excepted). The agent enforces its own `API_KEY` identically. The
-Langfuse keys and database password in the catalog are **development defaults** —
-rotate them before exposing a stack beyond localhost.
+(`/api/health` and `/metrics` stay open by design — they carry only liveness and
+aggregate counters, so scrapers need no credentials). The agent enforces its own
+`API_KEY` identically.
+
+The defaults are deny-first, and the CLI is loud when you leave them:
+
+- **Public bind without a key.** Creating an instance on a non-loopback host with
+  no `API_KEY` prints a prominent warning — and it repeats on every
+  `start`/`restart`/`apply` boot, not just the first, since the exposure recurs
+  on every boot.
+- **CORS is off by default.** Browsers on other origins can't drive the facade
+  (model pull/delete included) until you opt origins in with `--cors` /
+  `CORS_ORIGINS` (`*` restores the old allow-all behavior).
+- **Bounded inputs.** The agent caps request-controlled fan-out (retrieval depth,
+  tool-loop budget — the operator's `AGENT_MAX_STEPS` is the hard ceiling — eval
+  cases, summarize/extract text sizes), so one request can't monopolize the
+  backend, and the calculator tool rejects oversized arithmetic outright.
+
+The Langfuse keys and database password in the catalog are **development
+defaults** — rotate them before exposing a stack beyond localhost.
 
 ---
 
