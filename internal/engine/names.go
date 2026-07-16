@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"math/rand/v2"
 	"strings"
 )
@@ -77,6 +78,20 @@ func ValidName(s string) bool {
 // NormalizeName lowercases and trims a user-supplied name for consistency.
 func NormalizeName(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
+}
+
+// ResolveNetworkName normalizes and validates a group-network name ("" is
+// allowed and means the shared network). Centralized here — beside the naming
+// rules its value must satisfy — because the name is embedded in Docker
+// network names ("llmaker-net-<name>") and label values, and it is accepted
+// from three surfaces (--network flags on up/service add, `network:` in the
+// stack file) that must agree.
+func ResolveNetworkName(raw string) (string, error) {
+	name := NormalizeName(raw)
+	if name != "" && !ValidName(name) {
+		return "", fmt.Errorf("invalid network name %q (use lowercase letters, digits, - or _)", raw)
+	}
+	return name, nil
 }
 
 func itoa(i int) string {

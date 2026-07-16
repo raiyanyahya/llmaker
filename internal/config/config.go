@@ -48,15 +48,9 @@ func (f *File) validStack() (string, error) {
 }
 
 // resolveNetwork normalizes and validates a group-network name, falling back to
-// the file-level `network:`. Empty means the shared llmaker network (it becomes
-// part of a Docker network name and a label value, hence the identifier rules).
+// the file-level `network:`. Empty means the shared llmaker network.
 func (f *File) resolveNetwork(override string) (string, error) {
-	raw := firstNonEmpty(override, f.Network)
-	name := engine.NormalizeName(raw)
-	if name != "" && !engine.ValidName(name) {
-		return "", fmt.Errorf("invalid network name %q (use lowercase letters, digits, - or _)", raw)
-	}
-	return name, nil
+	return engine.ResolveNetworkName(firstNonEmpty(override, f.Network))
 }
 
 // Service is one declared infrastructure service (resolved against the catalog).
@@ -114,23 +108,21 @@ type Instance struct {
 
 // resolveGPUs picks an instance's effective GPU request. The instance's own
 // gpu/gpus settings win over defaults as a unit (so `gpu: false` on an
-// instance disables an inherited default); within one level `gpu:` and `gpus:`
-// are mutually exclusive. Returns the raw request for engine.ParseGPURequest
-// plus the legacy all-GPUs bool.
+// instance disables an inherited default); `gpu:` and `gpus:` together on the
+// instance are rejected (the defaults-level pairing is validated once in
+// ToSpecs, so the error points at the right block). Returns the raw request
+// for engine.ParseGPURequest plus the legacy all-GPUs bool.
 func resolveGPUs(in Instance, d Defaults) (request string, all bool, err error) {
-	pick := func(gpus GPUSpec, gpu *bool) (string, bool, error) {
-		if gpus != "" && gpu != nil {
-			return "", false, fmt.Errorf("use either gpu or gpus, not both")
-		}
-		if gpus != "" {
-			return string(gpus), false, nil
-		}
-		return "", gpu != nil && *gpu, nil
+	gpus, gpu := in.GPUs, in.GPU
+	if gpus == "" && gpu == nil {
+		gpus, gpu = d.GPUs, d.GPU
+	} else if gpus != "" && gpu != nil {
+		return "", false, fmt.Errorf("use either gpu or gpus, not both")
 	}
-	if in.GPUs != "" || in.GPU != nil {
-		return pick(in.GPUs, in.GPU)
+	if gpus != "" {
+		return string(gpus), false, nil
 	}
-	return pick(d.GPUs, d.GPU)
+	return "", gpu != nil && *gpu, nil
 }
 
 // Load reads and parses an llm.yaml file from disk.
@@ -164,6 +156,9 @@ func (f *File) ToSpecs() ([]engine.Spec, error) {
 	stack, err := f.validStack()
 	if err != nil {
 		return nil, err
+	}
+	if f.Defaults.GPUs != "" && f.Defaults.GPU != nil {
+		return nil, fmt.Errorf("defaults: use either gpu or gpus, not both")
 	}
 	seen := map[string]bool{}
 	specs := make([]engine.Spec, 0, len(f.Instances))

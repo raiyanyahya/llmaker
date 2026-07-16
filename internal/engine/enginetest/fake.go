@@ -41,10 +41,15 @@ func New() *Fake {
 }
 
 // Seed inserts a pre-existing instance (e.g. to test ls/stop on a running set).
+// Its group network (if any) is registered like Create would, so network GC
+// behaves the same for seeded fixtures as for created ones.
 func (f *Fake) Seed(in engine.Instance) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	cp := in
+	if in.Network != "" {
+		f.networks[in.Network] = true
+	}
 	f.instances[in.Name] = &cp
 }
 
@@ -53,6 +58,9 @@ func (f *Fake) SeedService(svc engine.Service) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	cp := svc
+	if svc.Network != "" {
+		f.networks[svc.Network] = true
+	}
 	f.services[svc.Name] = &cp
 }
 
@@ -79,10 +87,6 @@ func (f *Fake) Create(ctx context.Context, spec engine.Spec) (engine.Instance, e
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	gpus := strings.Join(spec.GPUIDs, ",")
-	if gpus == "" && spec.GPU {
-		gpus = "all"
-	}
 	in := &engine.Instance{
 		ID:      strings.Repeat("0", 8) + itoa(f.nextID),
 		Name:    spec.Name,
@@ -95,8 +99,9 @@ func (f *Fake) Create(ctx context.Context, spec engine.Spec) (engine.Instance, e
 		Health:  engine.HealthUnknown,
 		Created: time.Now(),
 		Runtime: engine.RuntimeContainer,
+		Stack:   spec.Stack,
 		Network: spec.Network,
-		GPUs:    gpus,
+		GPUs:    engine.GPULabelValue(spec),
 	}
 	if spec.Network != "" {
 		f.networks[spec.Network] = true
@@ -181,6 +186,7 @@ func (f *Fake) CreateService(ctx context.Context, spec engine.ServiceSpec) (engi
 		State:    engine.StateCreated,
 		Health:   engine.HealthUnknown,
 		Created:  time.Now(),
+		Stack:    spec.Stack,
 		Network:  spec.Network,
 	}
 	if spec.Network != "" {

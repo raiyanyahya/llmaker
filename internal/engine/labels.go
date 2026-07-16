@@ -99,12 +99,23 @@ func SpecLabels(s Spec, image string, port int) map[string]string {
 	if s.Network != "" {
 		m[LabelNetwork] = s.Network
 	}
-	if len(s.GPUIDs) > 0 {
-		m[LabelGPUs] = strings.Join(s.GPUIDs, ",")
-	} else if s.GPU {
-		m[LabelGPUs] = "all"
+	if g := GPULabelValue(s); g != "" {
+		m[LabelGPUs] = g
 	}
 	return m
+}
+
+// GPULabelValue renders a spec's GPU reservation as stored in LabelGPUs — a
+// comma-joined id list, "all", or "" for none. Shared with the test fake so
+// label encoding can't drift between production and tests.
+func GPULabelValue(s Spec) string {
+	if len(s.GPUIDs) > 0 {
+		return strings.Join(s.GPUIDs, ",")
+	}
+	if s.GPU {
+		return "all"
+	}
+	return ""
 }
 
 // ServiceLabels builds the label set stamped onto a service container. Port

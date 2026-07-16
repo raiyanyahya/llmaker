@@ -107,7 +107,7 @@ by name — no Compose file and no glue code.
 | **The complete stack, curated** | Models **and** the infrastructure around them — vector databases (Qdrant, Chroma, pgvector, Weaviate), Redis, embeddings, Open WebUI, n8n, Flowise, Whisper, Langfuse — from one versioned catalog. |
 | **Automatic service discovery** | Every model and service joins a private Docker network and resolves by name. Your application reaches `chat:8080` and `qdrant:6333` with zero IP wiring. |
 | **App-stack boundaries** | Group containers into isolated stacks with one `network:` line (or `--network`): members resolve each other by name, nothing outside the group can reach them, and empty group networks are garbage-collected automatically. |
-| **GPU partitioning** | Split a multi-GPU box between instances: `--gpus 2` takes any two free devices, `--gpus 0,1` exactly those — exclusive, label-tracked reservations. `apply` admits a stack's whole GPU demand as a unit (gang admission), so it comes up fully or not at all. |
+| **GPU partitioning** | Split a multi-GPU box between instances: `--gpus 2` takes any two free devices, `--gpus 0,1` exactly those — exclusive, label-tracked partitions (plain `--gpu` keeps its shareable all-GPUs behavior). `apply` admits a stack's whole GPU demand as a unit (gang admission), so it comes up fully or not at all. |
 | **A retrieval & tool agent, built in** | A FastAPI + LangGraph service: `rewrite → retrieve → rerank → generate` (multi-turn, MMR), a tool-calling loop (calculator, knowledge base, self-hosted web search, SQL), and a semantic recommendation API. |
 | **Observability by default** | Every instance exposes Prometheus `/metrics` (requests, errors, in-flight, completion tokens, tokens/sec, CPU/RAM/GPU) for scraping, and the RAG stack ships Langfuse — every query traced (retrieval hits and scores, model and token usage) with no setup. |
 | **Measurable quality** | An evaluation harness (`/api/eval`) grades answers for groundedness, relevance, and correctness with an LLM judge — retrieval quality you can track across changes, not guess at. |
@@ -334,7 +334,10 @@ the same `network:` share one boundary; a per-instance/per-service `network:`
 overrides the file default; `llmaker up --network <name>` and
 `llmaker service add <kind> --network <name>` group ad-hoc containers the same
 way. Empty group networks are cleaned up automatically when their last member
-is removed.
+is removed (never while a member exists, even stopped). A container belongs to
+exactly one group — infrastructure consumed by several isolated stacks belongs
+on the shared network — and `apply` won't move an existing container between
+networks: it warns, and `rm` + re-apply applies the change.
 
 ```yaml
 # rag.yaml — this stack is isolated from every other llmaker container
@@ -512,13 +515,26 @@ instances:
   - { name: coder, model: qwen3-coder, gpus: 1 }
 ```
 
-Reservations are **exclusive** and tracked on container labels: counted requests
-(`gpus: 1`) are placed on free devices automatically, explicit ids fail loudly
-if another instance holds them, and each container sees only its partition — so
-its `/metrics` GPU gauges are scoped to its own devices. `llmaker apply` admits
-a stack's GPU demand **as a unit** (gang admission): if the whole file doesn't
-fit the free GPUs, nothing is created rather than half a stack. `ls --json`
-reports each instance's reservation under `gpus`.
+Partitions (`gpus: 1`, `gpus: "0,1"`) are **exclusive** and tracked on container
+labels: counted requests are placed on free devices automatically, explicit ids
+fail loudly if another instance holds them, and each container sees only its
+partition — so its `/metrics` GPU gauges are scoped to its own devices.
+All-GPU grants (`--gpu` / `gpus: all`) keep their historical **sharing**
+semantics: any number of all-GPU instances coexist (engines like Ollama
+timeshare devices), but they never mix with partitions, whose exclusivity they
+would violate. `llmaker apply` admits a stack's GPU demand **as a unit** (gang
+admission): if the whole file doesn't fit the free GPUs, nothing is created
+rather than half a stack — and under `--prune`, devices held by instances the
+same run removes are treated as free, so renames converge. `ls` shows each
+reservation in a GPUS column (and `ls --json` under `gpus`).
+
+Caveats worth knowing: inventory comes from `nvidia-smi` **on the CLI host**, so
+counted/id requests can't see a remote `DOCKER_HOST`'s GPUs; instances created
+by pre-partitioning llmaker versions carry no reservation label and are
+invisible to the allocator until recreated; and concurrent `llmaker` invocations
+aren't serialized, so racing two `up --gpus 1` commands can double-book a
+device. `apply` never rewires an existing container's GPUs (or network) — it
+warns about the drift; `rm` + re-apply applies the change.
 
 | Image | Size | Use |
 |---|---|---|

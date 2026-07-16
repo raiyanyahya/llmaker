@@ -119,6 +119,7 @@ func runRm(ctx context.Context, app *App, names []string, force bool) error {
 	defer cleanup()
 
 	var errs []error
+	sawGroup := false
 	for _, name := range names {
 		in, err := app.mustGet(ctx, rt, name)
 		if err != nil {
@@ -136,9 +137,15 @@ func runRm(ctx context.Context, app *App, names []string, force bool) error {
 			return rt.Remove(ctx, in.Name, force)
 		}); err != nil {
 			errs = append(errs, err)
+		} else {
+			sawGroup = sawGroup || in.Network != ""
 		}
 	}
-	gcNetworks(ctx, app, rt)
+	// Only sweep when a grouped instance was removed — the common
+	// shared-network rm has nothing to collect.
+	if sawGroup {
+		gcNetworks(ctx, app, rt)
+	}
 	return joinErrs(errs)
 }
 

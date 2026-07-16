@@ -61,8 +61,8 @@ func newUpCmd(app *App) *cobra.Command {
 	f.StringVar(&opts.model, "model", "", "model to preload (default: the backend's default)")
 	f.StringVar(&opts.memory, "memory", "", "memory limit, e.g. 8g (default: derived from host)")
 	f.Float64Var(&opts.cpus, "cpus", 0, "CPU quota (default: derived from host)")
-	f.BoolVar(&opts.gpu, "gpu", false, "reserve all host GPUs (shorthand for --gpus all)")
-	f.StringVar(&opts.gpus, "gpus", "", "GPU reservation: 'all', a count (e.g. 2), or device ids (e.g. 0,1) — counted/id reservations are exclusive per instance")
+	f.BoolVar(&opts.gpu, "gpu", false, "reserve all host GPUs, shareable with other all-GPU instances (shorthand for --gpus all)")
+	f.StringVar(&opts.gpus, "gpus", "", "GPU reservation: 'all' (shared), a count (e.g. 2), or device ids (e.g. 0,1) — counted/id reservations are exclusive per instance")
 	f.IntVar(&opts.port, "port", 0, "host port for the facade (default: auto-assigned)")
 	f.StringVar(&opts.host, "host", "127.0.0.1", "host address to bind the facade to")
 	f.StringVar(&opts.image, "image", "", "override the backend image (advanced)")
@@ -99,7 +99,7 @@ type upOptions struct {
 // coreFlagsChanged reports whether the user set any instance-shaping flag, which
 // is how `up` decides between running the wizard and honoring explicit flags.
 func coreFlagsChanged(cmd *cobra.Command) bool {
-	for _, n := range []string{"name", "backend", "model", "memory", "cpus", "gpu", "gpus", "port", "host", "image", "api-key", "keep-alive", "cors"} {
+	for _, n := range []string{"name", "backend", "model", "memory", "cpus", "gpu", "gpus", "port", "host", "image", "api-key", "keep-alive", "cors", "network"} {
 		if cmd.Flags().Changed(n) {
 			return true
 		}
@@ -158,9 +158,9 @@ func runUp(ctx context.Context, app *App, opts upOptions, useWizard bool) error 
 
 	host := firstNonEmpty(opts.host, "127.0.0.1")
 
-	netName := engine.NormalizeName(opts.network)
-	if netName != "" && !engine.ValidName(netName) {
-		return fmt.Errorf("invalid network name %q (use lowercase letters, digits, - or _)", opts.network)
+	netName, err := engine.ResolveNetworkName(opts.network)
+	if err != nil {
+		return err
 	}
 
 	// Resolve resources.
@@ -189,21 +189,23 @@ func runUp(ctx context.Context, app *App, opts upOptions, useWizard bool) error 
 		Network: netName,
 	}
 
-	// Resolve the GPU request into a concrete, exclusive reservation against
-	// what the host has and what existing instances already claim.
-	if opts.gpu || opts.gpus != "" {
-		if err := resolveSpecGPUs(engine.NewGPUAllocator(app.gpuCount(), existing), &spec); err != nil {
-			return err
-		}
-	}
-
 	io := app.IO
 	t := io.Theme
 
 	// Honest hardware warning (plan §7): containers on macOS get no Metal.
+	// Shown BEFORE GPU resolution so a Mac user gets this explanation, not the
+	// allocator's "is nvidia-smi installed?" error.
 	if app.Host.IsMac() && (opts.gpu || opts.gpus != "") {
 		io.Println(t.WarnLine("Docker on macOS can't pass through the Apple GPU; this container will run CPU-only."))
 		io.Println(t.Muted.Render("  Native Metal mode (`--native`) is planned; see `llmaker doctor`."))
+	}
+
+	// Resolve the GPU request into a concrete reservation against what the
+	// host has and what existing instances already claim.
+	if opts.gpu || opts.gpus != "" {
+		if err := resolveSpecGPUs(engine.NewGPUAllocator(app.gpuCount, existing), &spec); err != nil {
+			return err
+		}
 	}
 
 	io.Println(t.InfoLine(fmt.Sprintf("Starting %s (%s · %s)", t.Value.Render(name), b.DisplayName, model)))

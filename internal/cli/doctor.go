@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -102,15 +103,17 @@ func dockerCheck(ctx context.Context, app *App) check {
 }
 
 func gpuCheck() check {
-	if _, err := exec.LookPath("nvidia-smi"); err != nil {
+	// Shares the allocator's probe (nvidiaGPUs) so doctor's report and
+	// --gpus admission can never disagree about the same host.
+	names, err := nvidiaGPUs()
+	switch {
+	case err != nil && errors.Is(err, exec.ErrNotFound):
 		return check{"GPU", ui.LevelMuted, "no NVIDIA GPU detected (CPU inference)"}
-	}
-	out, err := exec.Command("nvidia-smi", "--query-gpu=name", "--format=csv,noheader").Output()
-	if err != nil {
+	case err != nil:
 		return check{"GPU", ui.LevelWarn, "nvidia-smi present but failed to query"}
+	default:
+		return check{"GPU", ui.LevelOK, "NVIDIA detected: " + strings.Join(names, ", ")}
 	}
-	names := strings.Fields(strings.ReplaceAll(strings.TrimSpace(string(out)), "\n", ", "))
-	return check{"GPU", ui.LevelOK, "NVIDIA detected: " + strings.Join(names, " ")}
 }
 
 func ramString(h engine.HostInfo) string {

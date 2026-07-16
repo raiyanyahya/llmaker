@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -157,30 +158,50 @@ func (r *Runtime) networkConfig(ctx context.Context, group, name string) (*netwo
 	}, nil
 }
 
-// PruneNetworks removes managed group networks that no longer have containers
-// attached, returning the logical names it removed. The shared llmaker network
-// is never touched (it carries no group label, so the filter excludes it).
+// PruneNetworks removes managed group networks that no longer have any member
+// container, returning the logical names it removed. The shared llmaker
+// network is never touched (it carries no group label, so the filter excludes
+// it).
+//
+// Membership is decided from the llmaker.network label across containers in
+// ANY state — NOT from NetworkInspect's Containers view, which only lists
+// running endpoints: stopped/created members are invisible there, and sweeping
+// their network would make their next start fail with "network not found".
+// (Docker's `dangling` network filter has the same running-only blind spot.)
 func (r *Runtime) PruneNetworks(ctx context.Context) ([]string, error) {
 	key, val := engine.ManagedFilter()
-	f := filters.NewArgs(
+	labeled := filters.NewArgs(
 		filters.Arg("label", key+"="+val),
 		filters.Arg("label", engine.LabelNetwork),
 	)
-	nets, err := r.cli.NetworkList(ctx, network.ListOptions{Filters: f})
+	nets, err := r.cli.NetworkList(ctx, network.ListOptions{Filters: labeled})
 	if err != nil {
 		return nil, fmt.Errorf("list networks: %w", err)
 	}
+	if len(nets) == 0 {
+		return nil, nil
+	}
+	members, err := r.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: labeled})
+	if err != nil {
+		return nil, fmt.Errorf("list containers: %w", err)
+	}
+	inUse := map[string]bool{}
+	for _, c := range members {
+		inUse[c.Labels[engine.LabelNetwork]] = true
+	}
 	var removed []string
 	for _, n := range nets {
-		// List doesn't populate attachments; inspect for the live view.
-		ins, err := r.cli.NetworkInspect(ctx, n.ID, network.InspectOptions{})
-		if err != nil || len(ins.Containers) > 0 {
+		group := n.Labels[engine.LabelNetwork]
+		if inUse[group] {
 			continue
 		}
+		// A non-llmaker container the user attached manually still holds an
+		// active endpoint; NetworkRemove fails then, and we leave it alone.
 		if err := r.cli.NetworkRemove(ctx, n.ID); err == nil {
-			removed = append(removed, n.Labels[engine.LabelNetwork])
+			removed = append(removed, group)
 		}
 	}
+	sort.Strings(removed)
 	return removed, nil
 }
 

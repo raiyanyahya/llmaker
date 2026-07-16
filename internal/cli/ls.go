@@ -99,10 +99,25 @@ func runLs(ctx context.Context, app *App, opts lsOptions) error {
 		return nil
 	}
 
-	tbl := t.NewTable("", "NAME", "BACKEND", "MODEL", "STATE", "HEALTH", "PORT", "URL", "UPTIME")
+	// NETWORK and GPUS columns appear only when some instance uses them, so
+	// the common single-box fleet keeps its compact table.
+	showNet, showGPU := false, false
+	for _, in := range ins {
+		showNet = showNet || in.Network != ""
+		showGPU = showGPU || in.GPUs != ""
+	}
+	headers := []string{"", "NAME", "BACKEND", "MODEL", "STATE", "HEALTH", "PORT", "URL"}
+	if showNet {
+		headers = append(headers, "NETWORK")
+	}
+	if showGPU {
+		headers = append(headers, "GPUS")
+	}
+	headers = append(headers, "UPTIME")
+	tbl := t.NewTable(headers...)
 	for _, in := range ins {
 		dot := t.Dot(healthLevel(in.Health))
-		tbl.Row(
+		row := []string{
 			dot,
 			in.Name,
 			string(in.Backend),
@@ -111,8 +126,15 @@ func runLs(ctx context.Context, app *App, opts lsOptions) error {
 			healthLabel(in.Health),
 			itoa(in.Port),
 			in.URL(),
-			ui.HumanDuration(in.Uptime()),
-		)
+		}
+		if showNet {
+			row = append(row, in.Network)
+		}
+		if showGPU {
+			row = append(row, in.GPUs)
+		}
+		row = append(row, ui.HumanDuration(in.Uptime()))
+		tbl.Row(row...)
 	}
 	io.Println(tbl.Render())
 

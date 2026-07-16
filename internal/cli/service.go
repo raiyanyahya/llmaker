@@ -148,9 +148,9 @@ func runServiceAdd(ctx context.Context, app *App, kind string, opts serviceAddOp
 
 	host := firstNonEmpty(opts.host, "127.0.0.1")
 
-	netName := engine.NormalizeName(opts.network)
-	if netName != "" && !engine.ValidName(netName) {
-		return fmt.Errorf("invalid network name %q (use lowercase letters, digits, - or _)", opts.network)
+	netName, err := engine.ResolveNetworkName(opts.network)
+	if err != nil {
+		return err
 	}
 
 	used := usedPorts(instances, services)
@@ -247,16 +247,11 @@ func newServiceRmCmd(app *App) *cobra.Command {
 		Short: "Remove services (and their data volumes)",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			err := forEachService(cmd.Context(), app, args, "Removing", func(ctx context.Context, rt engine.Runtime, name string) error {
+			return forEachService(cmd.Context(), app, args, "Removing", func(ctx context.Context, rt engine.Runtime, name string) error {
 				return rt.Remove(ctx, name, force)
+			}, func(ctx context.Context, rt engine.Runtime) {
+				gcNetworks(ctx, app, rt) // sweep group networks the removals emptied
 			})
-			// forEachService scopes its runtime handle, so open a short-lived
-			// one for the sweep of now-empty group networks.
-			if rt, cleanup, rerr := app.runtime(cmd.Context()); rerr == nil {
-				gcNetworks(cmd.Context(), app, rt)
-				cleanup()
-			}
-			return err
 		},
 	}
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "remove even if running")
@@ -271,7 +266,7 @@ func newServiceStopCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return forEachService(cmd.Context(), app, args, "Stopping", func(ctx context.Context, rt engine.Runtime, name string) error {
 				return rt.Stop(ctx, name, engine.DefaultStopTimeout)
-			})
+			}, nil)
 		},
 	}
 }
@@ -284,7 +279,7 @@ func newServiceStartCmd(app *App) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return forEachService(cmd.Context(), app, args, "Starting", func(ctx context.Context, rt engine.Runtime, name string) error {
 				return rt.Start(ctx, name)
-			})
+			}, nil)
 		},
 	}
 }
@@ -299,14 +294,16 @@ func newServiceRestartCmd(app *App) *cobra.Command {
 				// Stop is best-effort: an already-stopped service still starts.
 				_ = rt.Stop(ctx, name, engine.DefaultStopTimeout)
 				return rt.Start(ctx, name)
-			})
+			}, nil)
 		},
 	}
 }
 
 // forEachService applies a lifecycle action to each named service, resolving the
-// name to a real service first so a typo gives a friendly error.
-func forEachService(ctx context.Context, app *App, names []string, verb string, action func(context.Context, engine.Runtime, string) error) error {
+// name to a real service first so a typo gives a friendly error. A non-nil
+// after hook runs once on the same runtime handle when every action is done
+// (e.g. rm's network sweep).
+func forEachService(ctx context.Context, app *App, names []string, verb string, action func(context.Context, engine.Runtime, string) error, after func(context.Context, engine.Runtime)) error {
 	rt, cleanup, err := app.runtime(ctx)
 	if err != nil {
 		return err
@@ -322,6 +319,9 @@ func forEachService(ctx context.Context, app *App, names []string, verb string, 
 		if aerr := app.step(verb+" "+name, func() error { return action(ctx, rt, name) }); aerr != nil {
 			errs = append(errs, aerr)
 		}
+	}
+	if after != nil {
+		after(ctx, rt)
 	}
 	return joinErrs(errs)
 }
@@ -360,6 +360,10 @@ func provisionService(ctx context.Context, app *App, rt engine.Runtime, spec eng
 		return rt.Start(ctx, spec.Name)
 	}); err != nil {
 		_ = rt.Remove(ctx, spec.Name, true)
+		// The rollback may have emptied a group network Create just made.
+		if spec.Network != "" {
+			gcNetworks(ctx, app, rt)
+		}
 		return err
 	}
 
@@ -443,9 +447,20 @@ func (a *App) enrichServiceHealth(ctx context.Context, svcs []engine.Service) {
 }
 
 func renderServiceTable(t *ui.Theme, svcs []engine.Service) string {
-	tbl := t.NewTable("", "NAME", "SERVICE", "CATEGORY", "STATE", "HEALTH", "ENDPOINT", "URL", "UPTIME")
+	// The NETWORK column appears only when some service is grouped, keeping
+	// the common shared-network fleet compact.
+	showNet := false
 	for _, s := range svcs {
-		tbl.Row(
+		showNet = showNet || s.Network != ""
+	}
+	headers := []string{"", "NAME", "SERVICE", "CATEGORY", "STATE", "HEALTH", "ENDPOINT", "URL"}
+	if showNet {
+		headers = append(headers, "NETWORK")
+	}
+	headers = append(headers, "UPTIME")
+	tbl := t.NewTable(headers...)
+	for _, s := range svcs {
+		row := []string{
 			t.Dot(healthLevel(s.Health)),
 			s.Name,
 			s.Kind,
@@ -454,8 +469,12 @@ func renderServiceTable(t *ui.Theme, svcs []engine.Service) string {
 			healthLabel(s.Health),
 			s.Endpoint(),
 			s.URL(),
-			ui.HumanDuration(s.Uptime()),
-		)
+		}
+		if showNet {
+			row = append(row, s.Network)
+		}
+		row = append(row, ui.HumanDuration(s.Uptime()))
+		tbl.Row(row...)
 	}
 	return tbl.Render()
 }

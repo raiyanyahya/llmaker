@@ -48,14 +48,22 @@ func provision(ctx context.Context, app *App, rt engine.Runtime, spec engine.Spe
 	if _, err := stepf(app, "Creating "+spec.Name, func() (engine.Instance, error) {
 		return rt.Create(ctx, spec)
 	}); err != nil {
+		// Create may have made the group network before failing; sweep it.
+		if spec.Network != "" {
+			gcNetworks(ctx, app, rt)
+		}
 		return baseURL, err
 	}
 
 	if err := app.step("Starting "+spec.Name, func() error {
 		return rt.Start(ctx, spec.Name)
 	}); err != nil {
-		// Don't leave a half-created instance lying around.
+		// Don't leave a half-created instance lying around — nor the group
+		// network the rollback may have emptied.
 		_ = rt.Remove(ctx, spec.Name, true)
+		if spec.Network != "" {
+			gcNetworks(ctx, app, rt)
+		}
 		return baseURL, err
 	}
 

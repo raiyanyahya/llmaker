@@ -210,6 +210,67 @@ func TestRunUpAllocatesGPUs(t *testing.T) {
 	}
 }
 
+func TestRunUpLegacyGPUSharing(t *testing.T) {
+	// Two --gpu (all-GPUs) instances must coexist — the legacy sharing
+	// behavior engines like Ollama rely on. No inventory probe should run.
+	app, rt, _, _ := testApp(t)
+	app.GPUCount = func() int { t.Fatal("inventory probed for --gpu"); return 0 }
+	for _, name := range []string{"share-a", "share-b"} {
+		opts := upOptions{name: name, backendName: "ollama", gpu: true, healthTimeout: time.Second}
+		if err := runUp(context.Background(), app, opts, false); err != nil {
+			t.Fatalf("runUp %s: %v", name, err)
+		}
+		in, _ := rt.Get(context.Background(), name)
+		if in.GPUs != "all" {
+			t.Errorf("%s GPUs = %q, want %q", name, in.GPUs, "all")
+		}
+	}
+	// A partition request is still refused next to an all-holder.
+	app.GPUCount = func() int { return 2 }
+	err := runUp(context.Background(), app, upOptions{name: "part", backendName: "ollama", gpus: "1", healthTimeout: time.Second}, false)
+	if err == nil || !strings.Contains(err.Error(), "all GPUs are reserved") {
+		t.Fatalf("expected all-reserved error, got %v", err)
+	}
+}
+
+func TestApplyPruneFreesGPUsForAdmission(t *testing.T) {
+	// Renaming a GPU-holding instance in a stack file must converge under
+	// --prune: the doomed instance's devices don't block admission.
+	app, rt, _, _ := testApp(t)
+	app.GPUCount = func() int { return 2 }
+	dir := t.TempDir()
+	path := dir + "/llm.yaml"
+
+	if err := writeFile(path, "name: s\ninstances:\n  - name: old\n    model: m\n    gpus: 2\n"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := runApply(context.Background(), app, applyOptions{file: path}); err != nil {
+		t.Fatalf("initial apply: %v", err)
+	}
+
+	if err := writeFile(path, "name: s\ninstances:\n  - name: renamed\n    model: m\n    gpus: 2\n"); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+	// Without --prune the old claim rightly blocks admission…
+	if err := runApply(context.Background(), app, applyOptions{file: path}); err == nil {
+		t.Fatal("expected admission failure without --prune (old still holds both GPUs)")
+	}
+	// …with --prune the rename converges in one run.
+	if err := runApply(context.Background(), app, applyOptions{file: path, prune: true}); err != nil {
+		t.Fatalf("apply --prune should converge, got %v", err)
+	}
+	if _, err := rt.Get(context.Background(), "old"); err == nil {
+		t.Error("old instance should have been pruned")
+	}
+	renamed, err := rt.Get(context.Background(), "renamed")
+	if err != nil {
+		t.Fatalf("renamed instance not created: %v", err)
+	}
+	if renamed.GPUs != "0,1" {
+		t.Errorf("renamed GPUs = %q, want %q", renamed.GPUs, "0,1")
+	}
+}
+
 func TestRunUpGPUAndGPUsConflict(t *testing.T) {
 	app, _, _, _ := testApp(t)
 	err := runUp(context.Background(), app, upOptions{name: "x", backendName: "ollama", gpu: true, gpus: "1", healthTimeout: time.Second}, false)

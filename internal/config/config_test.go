@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/raiyanyahya/llmaker/internal/backend"
@@ -72,13 +73,39 @@ func TestGPURequestValidation(t *testing.T) {
 	if _, err := f.ToSpecs(); err == nil {
 		t.Fatal("expected gpu+gpus on one instance to be rejected")
 	}
-	// Malformed requests fail at parse time, not at apply time.
-	f, err = Parse([]byte("instances:\n  - name: a\n    model: m\n    gpus: \"-3\"\n"))
+	// A defaults-level conflict blames the defaults block, not an instance.
+	f, err = Parse([]byte("defaults:\n  gpu: true\n  gpus: 1\ninstances:\n  - name: a\n    model: m\n"))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if _, err := f.ToSpecs(); err == nil {
-		t.Fatal("expected invalid gpus value to be rejected")
+	_, err = f.ToSpecs()
+	if err == nil || !strings.Contains(err.Error(), "defaults:") || strings.Contains(err.Error(), "instance") {
+		t.Fatalf("expected a defaults-level error, got %v", err)
+	}
+	// Malformed requests fail at parse time, not as an opaque NVIDIA error at
+	// container start: negative counts, junk tokens, and the natural typo
+	// `gpus: true` (YAML bool → literal "true") are all rejected here.
+	for _, doc := range []string{
+		"instances:\n  - name: a\n    model: m\n    gpus: \"-3\"\n",
+		"instances:\n  - name: a\n    model: m\n    gpus: true\n",
+		"instances:\n  - name: a\n    model: m\n    gpus: \"1.5\"\n",
+	} {
+		f, err := Parse([]byte(doc))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if _, err := f.ToSpecs(); err == nil {
+			t.Fatalf("expected invalid gpus value to be rejected in %q", doc)
+		}
+	}
+	// YAML null spellings mean "no GPUs", not a device named "null".
+	f, err = Parse([]byte("instances:\n  - name: a\n    model: m\n    gpus: null\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	specs, err := f.ToSpecs()
+	if err != nil || specs[0].GPUs != "" || specs[0].GPU {
+		t.Fatalf("gpus: null should mean no GPUs, got GPUs=%q GPU=%v err=%v", specs[0].GPUs, specs[0].GPU, err)
 	}
 }
 
