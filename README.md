@@ -334,7 +334,9 @@ the same `network:` share one boundary; a per-instance/per-service `network:`
 overrides the file default; `llmaker up --network <name>` and
 `llmaker service add <kind> --network <name>` group ad-hoc containers the same
 way. Empty group networks are cleaned up automatically when their last member
-is removed (never while a member exists, even stopped). A container belongs to
+is removed (never while a member exists, even stopped). `ls` and `service ls`
+show each container's group in a NETWORK column (and `ls --json` under
+`network`). A container belongs to
 exactly one group — infrastructure consumed by several isolated stacks belongs
 on the shared network — and `apply` won't move an existing container between
 networks: it warns, and `rm` + re-apply applies the change.
