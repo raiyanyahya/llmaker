@@ -15,13 +15,11 @@ engines locally. No third-party API keys. No data leaving your machine.
 <br/>
 
 <!--
-  DEMO SLOT — docs/demo.svg is a placeholder mock. Replace it with a real
-  terminal recording for maximum impact:
-    • record with vhs (https://github.com/charmbracelet/vhs), or asciinema + agg
-    • good script: `llmaker apply` bringing a stack up, then `llmaker top`
-    • save as docs/demo.gif and change the src below from demo.svg to demo.gif
+  A real recording: `llmaker apply` provisions an LLM + Qdrant + Redis stack,
+  `ls` shows the fleet, `chat` runs live inference, `top` shows the dashboard.
+  Re-record with vhs — see docs/demo.tape.
 -->
-<a href="#quickstart"><img src="docs/demo.svg" alt="llmaker provisioning a full LLM stack from a single command" width="820"/></a>
+<a href="#quickstart"><img src="docs/demo.gif" alt="llmaker provisioning a full LLM stack — model, vector DB, and cache — from a single command, then chatting with the model" width="820"/></a>
 
 <br/>
 
@@ -37,6 +35,7 @@ engines locally. No third-party API keys. No data leaving your machine.
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](facade/)
 [![LangGraph](https://img.shields.io/badge/agent-LangGraph-1C3C3C)](https://langchain-ai.github.io/langgraph/)
 [![Ollama](https://img.shields.io/badge/backend-Ollama-000000?logo=ollama&logoColor=white)](https://ollama.com)
+[![GPU](https://img.shields.io/badge/GPU-partitioning%20%26%20gang%20admission-76B900?logo=nvidia&logoColor=white)](#hardware--images)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey?logo=linux&logoColor=white)](#hardware--images)
 
 [![Code size](https://img.shields.io/github/languages/code-size/raiyanyahya/llmaker?logo=github)](https://github.com/raiyanyahya/llmaker)
